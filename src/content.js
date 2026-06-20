@@ -1,4 +1,4 @@
-/* YouTube Dabing CZ – content script */
+/* YouTube Dabing CZ – content script (čtení zobrazených titulků + TTS) */
 (() => {
   "use strict";
 
@@ -9,29 +9,25 @@
   const LANG_BCP = { cs:"cs-CZ", en:"en-US", de:"de-DE", sk:"sk-SK", pl:"pl-PL", es:"es-ES" };
 
   let settings = { ...DEFAULTS };
-  let active = false, segments = [], segIndex = 0;
-  let currentVideoId = null, video = null, prevMuted = null, loading = false;
-  let injected = false;
+  let active = false;
+  let video = null, prevMuted = null, injected = false;
+  let capObserver = null, lastSpoken = "", debounce = null, noCapTimer = null;
 
-  // ---------- nastavení ----------
   function loadSettings() {
-    return new Promise((resolve) => {
-      try { chrome.storage.sync.get(DEFAULTS, (s) => { settings = { ...DEFAULTS, ...s }; resolve(); }); }
-      catch (e) { resolve(); }
+    return new Promise((res) => {
+      try { chrome.storage.sync.get(DEFAULTS, (s) => { settings = { ...DEFAULTS, ...s }; res(); }); }
+      catch (e) { res(); }
     });
   }
-  chrome.storage.onChanged.addListener((changes, area) => {
+  chrome.storage.onChanged.addListener((c, area) => {
     if (area !== "sync") return;
-    for (const k of Object.keys(changes)) settings[k] = changes[k].newValue;
-    if (active && changes.targetLang) {
-      segments = [];
-      ensureSegments().then(() => { segIndex = nearestIndex(video ? video.currentTime : 0); }).catch(()=>{});
-    }
+    for (const k of Object.keys(c)) settings[k] = c[k].newValue;
+    if (active && c.targetLang) requestEnable();
     updateButton();
   });
-  chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
-    if (msg && msg.type === "DABING_TOGGLE") { toggle().then(() => sendResponse({ active })); return true; }
-    if (msg && msg.type === "DABING_STATUS") { sendResponse({ active, videoId: getVideoId() }); }
+  chrome.runtime.onMessage.addListener((msg, _s, send) => {
+    if (msg && msg.type === "DABING_TOGGLE") { toggle(); send({ active }); }
+    if (msg && msg.type === "DABING_STATUS") send({ active, videoId: getVideoId() });
   });
 
   function getVideoId() {
@@ -42,7 +38,7 @@
   }
   function bcp(l) { return LANG_BCP[l] || l; }
 
-  // ---------- získání titulkových tracků z přehrávače (kontext stránky) ----------
+  // ---- inject page script (pro ovládání titulků v přehrávači) ----
   function injectPageScript() {
     if (injected) return;
     injected = true;
@@ -53,92 +49,50 @@
       s.addEventListener("load", () => s.remove());
     } catch (e) { injected = false; }
   }
-  function getTracksFromPage() {
-    return new Promise((resolve) => {
-      injectPageScript();
-      const id = Math.random().toString(36).slice(2);
-      let done = false;
-      function h(ev) {
-        if (ev.source !== window || !ev.data || ev.data.__dabing !== "res" || ev.data.id !== id) return;
-        window.removeEventListener("message", h); done = true; resolve(ev.data.tracks || []);
+  function requestEnable() {
+    injectPageScript();
+    const id = Math.random().toString(36).slice(2);
+    window.postMessage({ __dabing: "enable", id, lang: settings.targetLang }, "*");
+  }
+
+  // ---- čtení zobrazených titulků ----
+  function readCaptionText() {
+    const segs = document.querySelectorAll(".ytp-caption-segment");
+    if (!segs.length) return "";
+    return Array.from(segs).map((s) => s.textContent).join(" ").replace(/\s+/g, " ").trim();
+  }
+  function onCaptionChange() {
+    if (!active) return;
+    clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      const t = readCaptionText();
+      if (!t) return;
+      // mluv jen ustálenou novou větu (ne průběžné dopisování)
+      if (t !== lastSpoken && !(lastSpoken && lastSpoken.startsWith(t))) {
+        lastSpoken = t;
+        if (noCapTimer) { clearTimeout(noCapTimer); noCapTimer = null; }
+        speak(t);
       }
-      window.addEventListener("message", h);
-      // dej stránce chvíli, případně zkus víckrát
-      let tries = 0;
-      const ping = () => { if (done) return; window.postMessage({ __dabing: "req", id }, "*"); if (++tries < 8) setTimeout(ping, 400); };
-      ping();
-      setTimeout(() => { if (!done) { window.removeEventListener("message", h); resolve([]); } }, 4000);
-    });
+    }, 320);
+  }
+  function startCaptionWatch() {
+    stopCaptionWatch();
+    const target = document.querySelector(".html5-video-player") || document.body;
+    capObserver = new MutationObserver(onCaptionChange);
+    capObserver.observe(target, { childList: true, subtree: true, characterData: true });
+  }
+  function stopCaptionWatch() {
+    if (capObserver) { capObserver.disconnect(); capObserver = null; }
+    clearTimeout(debounce);
   }
 
-  // záloha: stáhnout watch stránku a vyparsovat captionTracks
-  async function getTracksViaFetch(videoId) {
-    try {
-      const res = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=cs`, { credentials: "include" });
-      const html = await res.text();
-      const i = html.indexOf("captionTracks");
-      if (i === -1) return [];
-      const start = html.lastIndexOf("[", html.indexOf("[", i));
-      // jednodušší: vyřízneme JSON pole captionTracks regexem
-      const m = html.match(/"captionTracks":(\[.*?\])\s*,\s*"audioTracks"/s) ||
-                html.match(/"captionTracks":(\[.*?\])/s);
-      if (!m) return [];
-      const arr = JSON.parse(m[1]);
-      return arr.map((t) => ({ baseUrl: t.baseUrl, languageCode: t.languageCode, kind: t.kind || "", name: "" }));
-    } catch (e) { return []; }
-  }
-
-  function pickTrack(tracks) {
-    if (!tracks || !tracks.length) return null;
-    return tracks.find((t) => t.kind !== "asr") || tracks[0];
-  }
-
-  async function fetchSegments(track) {
-    let url = track.baseUrl;
-    if (settings.targetLang && track.languageCode !== settings.targetLang) {
-      url += (url.includes("?") ? "&" : "?") + "tlang=" + encodeURIComponent(settings.targetLang);
-    }
-    url += "&fmt=json3";
-    const r = await fetch(url, { credentials: "include" });
-    if (!r.ok) throw new Error("FETCH_FAIL");
-    const data = await r.json();
-    const segs = [];
-    for (const ev of (data.events || [])) {
-      if (!ev.segs) continue;
-      const text = ev.segs.map((s) => s.utf8 || "").join("").replace(/\s+/g, " ").trim();
-      if (text) segs.push({ start: (ev.tStartMs || 0) / 1000, dur: (ev.dDurationMs || 0) / 1000, text });
-    }
-    return segs;
-  }
-
-  async function ensureSegments() {
-    const vid = getVideoId();
-    if (!vid) throw new Error("NO_VIDEO");
-    if (segments.length && currentVideoId === vid) return;
-    currentVideoId = vid;
-    segments = [];
-
-    let tracks = await getTracksFromPage();
-    if (!tracks.length) tracks = await getTracksViaFetch(vid);
-    if (!tracks.length) throw new Error("NO_CAPTIONS");
-
-    const track = pickTrack(tracks);
-    let segs = await fetchSegments(track);
-    if (!segs.length) throw new Error("FETCH_FAIL");
-    segments = segs;
-  }
-
-  function nearestIndex(t) { let i = 0; while (i < segments.length && segments[i].start < t - 0.05) i++; return i; }
-
-  // ---------- TTS ----------
+  // ---- TTS ----
   function getVoices() { return window.speechSynthesis ? window.speechSynthesis.getVoices() : []; }
   function pickVoice() {
     const voices = getVoices();
     if (settings.voiceURI) { const v = voices.find((v) => v.voiceURI === settings.voiceURI); if (v) return v; }
-    const target = bcp(settings.targetLang).toLowerCase();
-    const l2 = settings.targetLang.toLowerCase();
+    const target = bcp(settings.targetLang).toLowerCase(), l2 = settings.targetLang.toLowerCase();
     const byLang = voices.filter((v) => v.lang.toLowerCase() === target || v.lang.toLowerCase().startsWith(l2));
-    // preferuj online "Google" hlas (bývá přirozenější), pak cokoli odpovídajícího
     return byLang.find((v) => /google/i.test(v.name)) || byLang[0] || null;
   }
   function speak(text) {
@@ -154,66 +108,49 @@
     window.speechSynthesis.speak(u);
   }
 
-  // ---------- smyčka ----------
-  function onTimeUpdate() {
-    if (!active || !video || !segments.length) return;
-    const t = video.currentTime;
-    let spoke = -1;
-    while (segIndex < segments.length && segments[segIndex].start <= t + 0.2) { spoke = segIndex; segIndex++; }
-    if (spoke !== -1) { const s = segments[spoke]; if (t - s.start < (s.dur || 6) + 1.5) speak(s.text); }
-  }
-  function onSeeking() { if (!active) return; try { window.speechSynthesis.cancel(); } catch(e){} segIndex = nearestIndex(video.currentTime); }
-  function onPause() { if (active && window.speechSynthesis) window.speechSynthesis.pause(); }
-  function onPlay() { if (active && window.speechSynthesis) window.speechSynthesis.resume(); }
-
   function attachVideo() {
     const v = document.querySelector("video.html5-main-video, video.video-stream, video");
     if (v && v !== video) {
-      detachVideo(); video = v;
-      video.addEventListener("timeupdate", onTimeUpdate);
-      video.addEventListener("seeking", onSeeking);
+      if (video) { video.removeEventListener("seeking", onSeek); video.removeEventListener("pause", onPause); video.removeEventListener("play", onPlay); }
+      video = v;
+      video.addEventListener("seeking", onSeek);
       video.addEventListener("pause", onPause);
       video.addEventListener("play", onPlay);
     }
     return video;
   }
-  function detachVideo() {
-    if (!video) return;
-    video.removeEventListener("timeupdate", onTimeUpdate);
-    video.removeEventListener("seeking", onSeeking);
-    video.removeEventListener("pause", onPause);
-    video.removeEventListener("play", onPlay);
-  }
+  function onSeek() { lastSpoken = ""; try { window.speechSynthesis.cancel(); } catch (e) {} }
+  function onPause() { if (active && window.speechSynthesis) window.speechSynthesis.pause(); }
+  function onPlay() { if (active && window.speechSynthesis) window.speechSynthesis.resume(); }
 
-  async function enable() {
-    if (loading) return;
-    loading = true; updateButton("loading");
-    try {
-      attachVideo();
-      await ensureSegments();
-      segIndex = nearestIndex(video ? video.currentTime : 0);
-      if (settings.muteOriginal && video) { prevMuted = video.muted; video.muted = true; }
-      active = true;
-    } catch (e) {
-      active = false;
-      const map = {
-        NO_CAPTIONS: "Toto video nemá titulky – dabing nelze spustit.",
-        FETCH_FAIL: "Titulky se nepodařilo načíst (YouTube je nevrátil). Zkus jiné video nebo zapni titulky (CC) ručně.",
-        NO_VIDEO: "Nenašel jsem přehrávač videa."
-      };
-      toast(map[e && e.message] || "Nepodařilo se načíst titulky pro překlad.");
-      console.warn("[Dabing CZ]", e);
-    } finally { loading = false; updateButton(); }
+  // ---- zapnout / vypnout ----
+  function enable() {
+    attachVideo();
+    requestEnable();                 // pokus zapnout titulky + překlad v přehrávači
+    lastSpoken = "";
+    startCaptionWatch();
+    if (settings.muteOriginal && video) { prevMuted = video.muted; video.muted = true; }
+    active = true;
+    updateButton();
+    // pokud se do 3 s neobjeví žádné titulky, upozorni
+    clearTimeout(noCapTimer);
+    noCapTimer = setTimeout(() => {
+      if (active && !readCaptionText() && !lastSpoken) {
+        toast("Nevidím titulky. Zapni je tlačítkem „Titulky (CC)\". Pro češtinu: ozubené kolečko → Titulky → Automaticky přeložit → Čeština.");
+      }
+    }, 3000);
   }
   function disable() {
     active = false;
+    stopCaptionWatch();
+    clearTimeout(noCapTimer); noCapTimer = null;
     try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {}
     if (video && prevMuted !== null) { video.muted = prevMuted; prevMuted = null; }
     updateButton();
   }
-  async function toggle() { if (active) disable(); else await enable(); }
+  function toggle() { if (active) disable(); else enable(); }
 
-  // ---------- tlačítko ----------
+  // ---- tlačítko ----
   const BTN_ID = "dabing-cz-btn";
   function svgIcon() {
     return `<svg height="100%" viewBox="0 0 36 36" width="100%" fill="#fff">
@@ -234,10 +171,9 @@
     if (cc) controls.insertBefore(btn, cc); else controls.insertBefore(btn, controls.firstChild);
     updateButton();
   }
-  function updateButton(state) {
+  function updateButton() {
     const btn = document.getElementById(BTN_ID); if (!btn) return;
     btn.classList.toggle("dabing-cz-active", active);
-    btn.classList.toggle("dabing-cz-loading", state === "loading");
     const badge = btn.querySelector(".dabing-cz-badge");
     if (badge) badge.textContent = (settings.targetLang || "").toUpperCase();
     const n = (settings.targetLang || "").toUpperCase();
@@ -247,17 +183,10 @@
     let el = document.getElementById("dabing-cz-toast");
     if (!el) { el = document.createElement("div"); el.id = "dabing-cz-toast"; document.body.appendChild(el); }
     el.textContent = text; el.classList.add("show");
-    clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 4500);
+    clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 6000);
   }
 
-  function onNavigate() {
-    const vid = getVideoId();
-    if (vid !== currentVideoId) {
-      const was = active; disable(); segments = []; currentVideoId = vid; attachVideo();
-      if (was || settings.enabled) setTimeout(() => enable(), 1500);
-    }
-    ensureButton();
-  }
+  function onNavigate() { lastSpoken = ""; attachVideo(); ensureButton(); if (active) requestEnable(); }
   document.addEventListener("yt-navigate-finish", onNavigate);
   window.addEventListener("yt-page-data-updated", onNavigate);
   new MutationObserver(() => ensureButton()).observe(document.body, { childList: true, subtree: true });
@@ -265,7 +194,7 @@
   if (window.speechSynthesis) { window.speechSynthesis.onvoiceschanged = () => {}; getVoices(); }
 
   loadSettings().then(() => {
-    attachVideo(); ensureButton();
+    injectPageScript(); attachVideo(); ensureButton();
     if (settings.enabled && getVideoId()) setTimeout(() => enable(), 1800);
   });
 })();
