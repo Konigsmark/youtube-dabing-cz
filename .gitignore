@@ -9,3 +9,4 @@ Thumbs.db
 *.zip
 node_modules/
 dist/
+push-log.txt

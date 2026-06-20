@@ -11,7 +11,8 @@
   let settings = { ...DEFAULTS };
   let active = false;
   let video = null, prevMuted = null, injected = false;
-  let capObserver = null, lastSpoken = "", debounce = null, noCapTimer = null;
+  let capObserver = null, lastText = "", lastEmitted = "", stabTimer = null, noCapTimer = null;
+  let speaking = false, nextText = null, keepAlive = null;
 
   function loadSettings() {
     return new Promise((res) => {
@@ -61,19 +62,20 @@
     if (!segs.length) return "";
     return Array.from(segs).map((s) => s.textContent).join(" ").replace(/\s+/g, " ").trim();
   }
+  // emit věty až když se text na ~520 ms ustálí (titulky se píšou po slovech)
   function onCaptionChange() {
     if (!active) return;
-    clearTimeout(debounce);
-    debounce = setTimeout(() => {
-      const t = readCaptionText();
-      if (!t) return;
-      // mluv jen ustálenou novou větu (ne průběžné dopisování)
-      if (t !== lastSpoken && !(lastSpoken && lastSpoken.startsWith(t))) {
-        lastSpoken = t;
-        if (noCapTimer) { clearTimeout(noCapTimer); noCapTimer = null; }
-        speak(t);
-      }
-    }, 320);
+    const t = readCaptionText();
+    if (t === lastText) return;
+    lastText = t;
+    clearTimeout(stabTimer);
+    stabTimer = setTimeout(() => {
+      const stable = readCaptionText();
+      if (!stable || stable === lastEmitted) return;
+      lastEmitted = stable;
+      if (noCapTimer) { clearTimeout(noCapTimer); noCapTimer = null; }
+      enqueue(stable);
+    }, 520);
   }
   function startCaptionWatch() {
     stopCaptionWatch();
@@ -83,7 +85,7 @@
   }
   function stopCaptionWatch() {
     if (capObserver) { capObserver.disconnect(); capObserver = null; }
-    clearTimeout(debounce);
+    clearTimeout(stabTimer);
   }
 
   // ---- TTS ----
@@ -95,9 +97,15 @@
     const byLang = voices.filter((v) => v.lang.toLowerCase() === target || v.lang.toLowerCase().startsWith(l2));
     return byLang.find((v) => /google/i.test(v.name)) || byLang[0] || null;
   }
-  function speak(text) {
+  // fronta promluv – nepřerušujeme uprostřed věty (kvůli plynulosti)
+  function enqueue(text) {
+    if (!text) return;
+    if (speaking) { nextText = text; return; }   // domluv aktuální, pak přijde tahle
+    doSpeak(text);
+  }
+  function doSpeak(text) {
     if (!window.speechSynthesis) return;
-    try { window.speechSynthesis.cancel(); } catch (e) {}
+    speaking = true;
     const u = new SpeechSynthesisUtterance(text);
     const v = pickVoice();
     if (v) u.voice = v;
@@ -105,8 +113,28 @@
     u.rate = Number(settings.rate) || 1.1;
     u.pitch = Number(settings.pitch) || 1.0;
     u.volume = Number(settings.volume) || 1.0;
-    window.speechSynthesis.speak(u);
+    const done = () => {
+      speaking = false;
+      if (nextText) { const n = nextText; nextText = null; doSpeak(n); }
+    };
+    u.onend = done;
+    u.onerror = done;
+    try { window.speechSynthesis.speak(u); } catch (e) { speaking = false; }
   }
+  function clearSpeech() {
+    nextText = null; speaking = false;
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+  }
+  // oprava chyby Chromu: dlouhé promluvy se po ~15 s sekají → pravidelný resume
+  function startKeepAlive() {
+    stopKeepAlive();
+    keepAlive = setInterval(() => {
+      if (active && window.speechSynthesis && window.speechSynthesis.speaking) {
+        try { window.speechSynthesis.resume(); } catch (e) {}
+      }
+    }, 8000);
+  }
+  function stopKeepAlive() { if (keepAlive) { clearInterval(keepAlive); keepAlive = null; } }
 
   function attachVideo() {
     const v = document.querySelector("video.html5-main-video, video.video-stream, video");
@@ -119,7 +147,7 @@
     }
     return video;
   }
-  function onSeek() { lastSpoken = ""; try { window.speechSynthesis.cancel(); } catch (e) {} }
+  function onSeek() { lastText = ""; lastEmitted = ""; clearSpeech(); }
   function onPause() { if (active && window.speechSynthesis) window.speechSynthesis.pause(); }
   function onPlay() { if (active && window.speechSynthesis) window.speechSynthesis.resume(); }
 
@@ -127,8 +155,9 @@
   function enable() {
     attachVideo();
     requestEnable();                 // pokus zapnout titulky + překlad v přehrávači
-    lastSpoken = "";
+    lastText = ""; lastEmitted = "";
     startCaptionWatch();
+    startKeepAlive();
     if (settings.muteOriginal && video) { prevMuted = video.muted; video.muted = true; }
     active = true;
     updateButton();
@@ -143,8 +172,9 @@
   function disable() {
     active = false;
     stopCaptionWatch();
+    stopKeepAlive();
     clearTimeout(noCapTimer); noCapTimer = null;
-    try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {}
+    clearSpeech();
     if (video && prevMuted !== null) { video.muted = prevMuted; prevMuted = null; }
     updateButton();
   }
@@ -171,13 +201,48 @@
     if (cc) controls.insertBefore(btn, cc); else controls.insertBefore(btn, controls.firstChild);
     updateButton();
   }
+  // ---- tlačítko v řádku akcí pod videem (vedle NotebookLM/Sdílet) ----
+  const ABTN_ID = "dabing-cz-actionbtn";
+  function actionIcon() {
+    return `<svg viewBox="0 0 36 36" width="22" height="22" fill="currentColor" aria-hidden="true">
+      <path d="M8 15v6h4l5 5V10l-5 5H8z"></path>
+      <path d="M20 13.5c1.6 1 1.6 8 0 9" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"></path>
+      <path d="M22.5 11c3 1.8 3 12.2 0 14" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"></path>
+    </svg>`;
+  }
+  function ensureActionButton() {
+    const row = document.querySelector(
+      "ytd-watch-metadata #actions #top-level-buttons-computed, " +
+      "ytd-watch-metadata #actions-inner #top-level-buttons-computed, " +
+      "ytd-watch-metadata #actions ytd-menu-renderer #top-level-buttons-computed"
+    ) || document.querySelector("#top-level-buttons-computed");
+    if (!row || document.getElementById(ABTN_ID)) return;
+    const b = document.createElement("button");
+    b.id = ABTN_ID;
+    b.className = "dabing-cz-actionbtn";
+    b.innerHTML = `${actionIcon()}<span class="dabing-cz-actionlabel">Dabing</span>`;
+    b.addEventListener("click", (e) => { e.stopPropagation(); toggle(); });
+    row.appendChild(b);
+    updateButton();
+  }
+
   function updateButton() {
-    const btn = document.getElementById(BTN_ID); if (!btn) return;
-    btn.classList.toggle("dabing-cz-active", active);
-    const badge = btn.querySelector(".dabing-cz-badge");
-    if (badge) badge.textContent = (settings.targetLang || "").toUpperCase();
     const n = (settings.targetLang || "").toUpperCase();
-    btn.title = active ? `Dabing (${n}) zapnut – kliknutím vypnete` : `Spustit dabing (${n})`;
+    const tip = active ? `Dabing (${n}) zapnut – kliknutím vypnete` : `Spustit dabing (${n})`;
+    const pbtn = document.getElementById(BTN_ID);
+    if (pbtn) {
+      pbtn.classList.toggle("dabing-cz-active", active);
+      const badge = pbtn.querySelector(".dabing-cz-badge");
+      if (badge) badge.textContent = n;
+      pbtn.title = tip;
+    }
+    const abtn = document.getElementById(ABTN_ID);
+    if (abtn) {
+      abtn.classList.toggle("dabing-cz-active", active);
+      abtn.title = tip;
+      const lab = abtn.querySelector(".dabing-cz-actionlabel");
+      if (lab) lab.textContent = active ? `Dabing (${n})` : "Dabing";
+    }
   }
   function toast(text) {
     let el = document.getElementById("dabing-cz-toast");
@@ -186,15 +251,15 @@
     clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 6000);
   }
 
-  function onNavigate() { lastSpoken = ""; attachVideo(); ensureButton(); if (active) requestEnable(); }
+  function onNavigate() { lastText = ""; lastEmitted = ""; attachVideo(); ensureButton(); ensureActionButton(); if (active) requestEnable(); }
   document.addEventListener("yt-navigate-finish", onNavigate);
   window.addEventListener("yt-page-data-updated", onNavigate);
-  new MutationObserver(() => ensureButton()).observe(document.body, { childList: true, subtree: true });
+  new MutationObserver(() => { ensureButton(); ensureActionButton(); }).observe(document.body, { childList: true, subtree: true });
 
   if (window.speechSynthesis) { window.speechSynthesis.onvoiceschanged = () => {}; getVoices(); }
 
   loadSettings().then(() => {
-    injectPageScript(); attachVideo(); ensureButton();
+    injectPageScript(); attachVideo(); ensureButton(); ensureActionButton();
     if (settings.enabled && getVideoId()) setTimeout(() => enable(), 1800);
   });
 })();

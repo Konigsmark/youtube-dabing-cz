@@ -19,6 +19,7 @@ git remote remove origin >nul 2>nul
 git remote add origin "%REPO%"
 git branch -M main
 
+git rm --cached push-log.txt >nul 2>nul
 git add -A >> "%LOG%" 2>&1
 git -c commit.gpgsign=false commit -m "update %DATE% %TIME%" >> "%LOG%" 2>&1
 

@@ -62,3 +62,27 @@
   text-align: center;
 }
 #dabing-cz-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Tlačítko v řádku akcí pod videem (vedle NotebookLM/Sdílet) */
+.dabing-cz-actionbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px 0 12px;
+  margin-left: 8px;
+  border: none;
+  border-radius: 18px;
+  background: var(--yt-spec-badge-chip-background, rgba(0,0,0,0.05));
+  color: var(--yt-spec-text-primary, #0f0f0f);
+  font-family: "Roboto", Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.dabing-cz-actionbtn:hover { background: var(--yt-spec-10-percent-layer, rgba(0,0,0,0.1)); }
+.dabing-cz-actionbtn svg { display: block; }
+.dabing-cz-actionbtn.dabing-cz-active { background: #ff4d4d; color: #fff; }
