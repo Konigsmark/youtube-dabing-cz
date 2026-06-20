@@ -1,0 +1,21 @@
+==== 21.06.2026  1:11:42,53 ==== 
+
+-------------------------------------------------------------------------------
+   ROBOCOPY     ::     Robust File Copy for Windows                              
+-------------------------------------------------------------------------------
+
+  Started : nedƒõle 21. ƒçervna 2026 1:11:42
+   Source : D:\OneDrive\Dokumenty\Claude\Projects\AI p˝ekladaü (c) FK\youtube-dabing-cz\
+     Dest : C:\Users\Konigsmark\Projects\youtube-dabing-cz\
+
+    Files : *.*
+	    
+ Exc Dirs : .git
+	    
+  Options : *.* /S /E /DCOPY:DA /COPY:DAT /R:1000000 /W:30 
+
+------------------------------------------------------------------------------
+
+	                   6	D:\OneDrive\Dokumenty\Claude\Projects\AI p˝ekladaü (c) FK\youtube-dabing-cz\
+	    Newer     		     964	nahrat-na-github.bat100%  
+	    New File  		      35	push-log.txt
