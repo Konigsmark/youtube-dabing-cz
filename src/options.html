@@ -22,44 +22,99 @@
       </select>
     </section>
 
+    <hr>
+    <h2 style="font-size:14px;margin:0 0 4px">Hlas</h2>
     <section>
-      <label for="voice">Hlas (volitelné)</label>
-      <select id="voice"><option value="">Automaticky podle jazyka</option></select>
-      <small>Seznam závisí na hlasech nainstalovaných ve vašem systému / prohlížeči.</small>
+      <label for="engine">Hlasový engine</label>
+      <select id="engine">
+        <option value="builtin">Vestavěný hlas prohlížeče (zdarma – Jakub)</option>
+        <option value="azure">Microsoft Natural přes Azure (Vlasta/Antonín) – doporučeno</option>
+        <option value="elevenlabs">ElevenLabs – neuronový hlas (placené)</option>
+      </select>
     </section>
 
+    <div id="builtinBox">
+      <section>
+        <label for="voice">Vestavěný hlas</label>
+        <select id="voice"><option value="">Automaticky podle jazyka</option></select>
+        <small>Závisí na hlasech ve Windows. Pokud je tu jen „Jakub", lepší vestavěný český hlas není.</small>
+      </section>
+    </div>
+
+    <div id="azureBox" style="display:none">
+      <section>
+        <label for="azureKey">Azure Speech klíč</label>
+        <input type="password" id="azureKey" placeholder="klíč ze Speech resource" autocomplete="off">
+      </section>
+      <section>
+        <label for="azureRegion">Region</label>
+        <input type="text" id="azureRegion" placeholder="např. westeurope" autocomplete="off">
+        <small>Region tvého Azure „Speech" resource (např. westeurope, germanywestcentral).</small>
+      </section>
+      <section>
+        <label for="azureVoice">Hlas (Microsoft Natural)</label>
+        <select id="azureVoice">
+          <option value="cs-CZ-VlastaNeural">Vlasta (žena, CZ)</option>
+          <option value="cs-CZ-AntoninNeural">Antonín (muž, CZ)</option>
+          <option value="en-US-AvaMultilingualNeural">Ava (multilingual)</option>
+          <option value="en-US-AndrewMultilingualNeural">Andrew (multilingual)</option>
+          <option value="de-DE-SeraphinaMultilingualNeural">Seraphina (multilingual)</option>
+        </select>
+      </section>
+      <section><small>✅ Azure má <b>free tarif 500 000 znaků/měsíc zdarma</b>. Návod na klíč je v nápovědě dole.</small></section>
+    </div>
+
+    <div id="elevenBox" style="display:none">
+      <section>
+        <label for="elevenKey">ElevenLabs API klíč</label>
+        <input type="password" id="elevenKey" placeholder="xi-..." autocomplete="off">
+        <small>elevenlabs.io → profil → API Keys. Ukládá se jen lokálně.</small>
+      </section>
+      <section>
+        <label for="elevenVoice">Hlas (ElevenLabs)</label>
+        <div style="display:flex;gap:8px">
+          <select id="elevenVoice" style="flex:1"><option value="">— načti hlasy —</option></select>
+          <button id="loadVoices" class="btn-small">Načíst hlasy</button>
+        </div>
+        <small><span id="voiceMsg"></span></small>
+      </section>
+      <section>
+        <label for="elevenModel">Model</label>
+        <select id="elevenModel">
+          <option value="eleven_multilingual_v2">eleven_multilingual_v2 (kvalita)</option>
+          <option value="eleven_turbo_v2_5">eleven_turbo_v2_5 (rychlé)</option>
+          <option value="eleven_flash_v2_5">eleven_flash_v2_5 (nejrychlejší)</option>
+        </select>
+      </section>
+      <section><small>⚠️ Placené podle počtu znaků.</small></section>
+    </div>
+
     <section>
-      <label for="rate">Rychlost hlasu: <span id="rateVal"></span></label>
+      <label for="rate">Rychlost: <span id="rateVal"></span></label>
       <input type="range" id="rate" min="0.5" max="2" step="0.1">
     </section>
-
     <section>
-      <label for="pitch">Výška hlasu: <span id="pitchVal"></span></label>
+      <label for="pitch">Výška (jen vestavěný hlas): <span id="pitchVal"></span></label>
       <input type="range" id="pitch" min="0.5" max="2" step="0.1">
     </section>
-
     <section>
       <label for="volume">Hlasitost dabingu: <span id="volVal"></span></label>
       <input type="range" id="volume" min="0" max="1" step="0.05">
     </section>
 
-    <section class="check">
-      <label><input type="checkbox" id="mute"> Ztlumit originální zvuk během dabingu</label>
-    </section>
-
-    <section class="check">
-      <label><input type="checkbox" id="enabled"> Automaticky spustit dabing na každém videu</label>
-    </section>
+    <section class="check"><label><input type="checkbox" id="mute"> Ztlumit originální zvuk během dabingu</label></section>
+    <section class="check"><label><input type="checkbox" id="enabled"> Automaticky spustit dabing na každém videu</label></section>
 
     <p id="saved" class="saved">Uloženo ✓</p>
 
     <hr>
     <details>
-      <summary>Jak to funguje a omezení</summary>
-      <p>Rozšíření načte titulky videa, nechá je YouTube přeložit do zvoleného jazyka
-      a přečte je nahlas hlasem prohlížeče. <b>Funguje jen u videí, která mají titulky</b>
-      (i automaticky generované). Nejde o náhradu originálního hlasu mluvčího – jde o
-      předčítání přeložených titulků synchronně s videem.</p>
+      <summary>Jak získat Azure klíč (zdarma) a jak to funguje</summary>
+      <p><b>Azure Speech (zdarma):</b> 1) Založ účet na portal.azure.com. 2) „Create resource" → vyhledej
+      <b>Speech</b> → vytvoř (cenová úroveň <b>Free F0</b>). 3) V resource v sekci „Keys and Endpoint"
+      zkopíruj <b>KEY 1</b> a <b>Location/Region</b> (např. <i>westeurope</i>) sem do nastavení.</p>
+      <p>Rozšíření čte titulky zobrazené v přehrávači a předčítá je nahlas. <b>Zapni titulky (CC)</b>;
+      pro češtinu i automatický překlad do češtiny.</p>
     </details>
   </main>
   <script src="options.js"></script>

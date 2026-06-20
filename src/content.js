@@ -4,7 +4,14 @@
 
   const DEFAULTS = {
     enabled: false, targetLang: "cs", rate: 1.1, pitch: 1.0,
-    volume: 1.0, voiceURI: "", muteOriginal: true
+    volume: 1.0, voiceURI: "", muteOriginal: true,
+    ttsEngine: "builtin",          // "builtin" | "elevenlabs" | "azure"
+    elevenKey: "",
+    elevenVoiceId: "21m00Tcm4TlvDq8ikWAM",
+    elevenModel: "eleven_multilingual_v2",
+    azureKey: "",
+    azureRegion: "",
+    azureVoice: "cs-CZ-VlastaNeural"
   };
   const LANG_BCP = { cs:"cs-CZ", en:"en-US", de:"de-DE", sk:"sk-SK", pl:"pl-PL", es:"es-ES" };
 
@@ -12,7 +19,7 @@
   let active = false;
   let video = null, prevMuted = null, injected = false;
   let capObserver = null, lastText = "", lastEmitted = "", stabTimer = null, noCapTimer = null;
-  let speaking = false, nextText = null, keepAlive = null;
+  let speaking = false, nextText = null, keepAlive = null, curAudio = null;
 
   function loadSettings() {
     return new Promise((res) => {
@@ -104,8 +111,37 @@
     doSpeak(text);
   }
   function doSpeak(text) {
-    if (!window.speechSynthesis) return;
     speaking = true;
+    const done = () => {
+      speaking = false;
+      if (active && nextText) { const n = nextText; nextText = null; doSpeak(n); }
+    };
+    const cloudHandler = (resp) => {
+      if (!active) { speaking = false; return; }
+      if (chrome.runtime.lastError || !resp || resp.error || !resp.audio) {
+        const err = (resp && resp.error) || (chrome.runtime.lastError && chrome.runtime.lastError.message) || "neznámá chyba";
+        if (!doSpeak._warned) { doSpeak._warned = true; toast("Neuronový hlas selhal: " + err + " – používám záložní hlas."); }
+        speakBuiltin(text, done);
+        return;
+      }
+      playBase64(resp.audio, done);
+    };
+    if (settings.ttsEngine === "elevenlabs" && settings.elevenKey && settings.elevenVoiceId) {
+      try {
+        chrome.runtime.sendMessage({ type: "ELEVEN_TTS", apiKey: settings.elevenKey,
+          voiceId: settings.elevenVoiceId, modelId: settings.elevenModel, text }, cloudHandler);
+      } catch (e) { speakBuiltin(text, done); }
+    } else if (settings.ttsEngine === "azure" && settings.azureKey && settings.azureRegion) {
+      try {
+        chrome.runtime.sendMessage({ type: "AZURE_TTS", key: settings.azureKey,
+          region: settings.azureRegion, voice: settings.azureVoice, text, rate: settings.rate }, cloudHandler);
+      } catch (e) { speakBuiltin(text, done); }
+    } else {
+      speakBuiltin(text, done);
+    }
+  }
+  function speakBuiltin(text, onend) {
+    if (!window.speechSynthesis) { onend && onend(); return; }
     const u = new SpeechSynthesisUtterance(text);
     const v = pickVoice();
     if (v) u.voice = v;
@@ -113,16 +149,26 @@
     u.rate = Number(settings.rate) || 1.1;
     u.pitch = Number(settings.pitch) || 1.0;
     u.volume = Number(settings.volume) || 1.0;
-    const done = () => {
-      speaking = false;
-      if (nextText) { const n = nextText; nextText = null; doSpeak(n); }
-    };
-    u.onend = done;
-    u.onerror = done;
-    try { window.speechSynthesis.speak(u); } catch (e) { speaking = false; }
+    u.onend = onend; u.onerror = onend;
+    try { window.speechSynthesis.speak(u); } catch (e) { onend && onend(); }
   }
+  function playBase64(b64, onend) {
+    try {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
+      stopAudio();
+      curAudio = new Audio(url);
+      curAudio.volume = Number(settings.volume) || 1.0;
+      curAudio.playbackRate = Math.min(2, Math.max(0.7, Number(settings.rate) || 1.0));
+      const fin = () => { try { URL.revokeObjectURL(url); } catch (e) {} if (onend) onend(); };
+      curAudio.onended = fin; curAudio.onerror = fin;
+      curAudio.play().catch(() => fin());
+    } catch (e) { onend && onend(); }
+  }
+  function stopAudio() { if (curAudio) { try { curAudio.pause(); } catch (e) {} curAudio = null; } }
   function clearSpeech() {
     nextText = null; speaking = false;
+    stopAudio();
     try { window.speechSynthesis.cancel(); } catch (e) {}
   }
   // oprava chyby Chromu: dlouhé promluvy se po ~15 s sekají → pravidelný resume
@@ -155,7 +201,7 @@
   function enable() {
     attachVideo();
     requestEnable();                 // pokus zapnout titulky + překlad v přehrávači
-    lastText = ""; lastEmitted = "";
+    lastText = ""; lastEmitted = ""; doSpeak._warned = false;
     startCaptionWatch();
     startKeepAlive();
     if (settings.muteOriginal && video) { prevMuted = video.muted; video.muted = true; }
