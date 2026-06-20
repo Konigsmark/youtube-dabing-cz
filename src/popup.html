@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="ui.css">
+  <title>YouTube Dabing CZ</title>
+</head>
+<body class="popup">
+  <header class="head">
+    <div class="logo">🎙️</div>
+    <div>
+      <h1>YouTube Dabing CZ</h1>
+      <p class="sub">Čte titulky videa nahlas ve vámi zvoleném jazyce.</p>
+    </div>
+  </header>
+
+  <div class="row">
+    <button id="toggle" class="btn-primary">Spustit dabing</button>
+  </div>
+
+  <div class="row">
+    <label for="lang">Výstupní jazyk</label>
+    <select id="lang">
+      <option value="cs">Čeština</option>
+      <option value="en">Angličtina</option>
+      <option value="de">Němčina</option>
+      <option value="sk">Slovenština</option>
+      <option value="pl">Polština</option>
+      <option value="es">Španělština</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <label for="rate">Rychlost hlasu: <span id="rateVal">1.1×</span></label>
+    <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1.1">
+  </div>
+
+  <p id="status" class="status"></p>
+
+  <footer class="foot">
+    <a href="#" id="openOptions">Další nastavení</a>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

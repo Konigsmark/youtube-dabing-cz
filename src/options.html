@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="ui.css">
+  <title>Nastavení – YouTube Dabing CZ</title>
+</head>
+<body class="options">
+  <main class="card">
+    <h1>🎙️ YouTube Dabing CZ — nastavení</h1>
+
+    <section>
+      <label for="lang">Výstupní jazyk dabingu</label>
+      <select id="lang">
+        <option value="cs">Čeština</option>
+        <option value="en">Angličtina</option>
+        <option value="de">Němčina</option>
+        <option value="sk">Slovenština</option>
+        <option value="pl">Polština</option>
+        <option value="es">Španělština</option>
+      </select>
+    </section>
+
+    <section>
+      <label for="voice">Hlas (volitelné)</label>
+      <select id="voice"><option value="">Automaticky podle jazyka</option></select>
+      <small>Seznam závisí na hlasech nainstalovaných ve vašem systému / prohlížeči.</small>
+    </section>
+
+    <section>
+      <label for="rate">Rychlost hlasu: <span id="rateVal"></span></label>
+      <input type="range" id="rate" min="0.5" max="2" step="0.1">
+    </section>
+
+    <section>
+      <label for="pitch">Výška hlasu: <span id="pitchVal"></span></label>
+      <input type="range" id="pitch" min="0.5" max="2" step="0.1">
+    </section>
+
+    <section>
+      <label for="volume">Hlasitost dabingu: <span id="volVal"></span></label>
+      <input type="range" id="volume" min="0" max="1" step="0.05">
+    </section>
+
+    <section class="check">
+      <label><input type="checkbox" id="mute"> Ztlumit originální zvuk během dabingu</label>
+    </section>
+
+    <section class="check">
+      <label><input type="checkbox" id="enabled"> Automaticky spustit dabing na každém videu</label>
+    </section>
+
+    <p id="saved" class="saved">Uloženo ✓</p>
+
+    <hr>
+    <details>
+      <summary>Jak to funguje a omezení</summary>
+      <p>Rozšíření načte titulky videa, nechá je YouTube přeložit do zvoleného jazyka
+      a přečte je nahlas hlasem prohlížeče. <b>Funguje jen u videí, která mají titulky</b>
+      (i automaticky generované). Nejde o náhradu originálního hlasu mluvčího – jde o
+      předčítání přeložených titulků synchronně s videem.</p>
+    </details>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+/* Tlačítko Dabing CZ v ovládání přehrávače */
+.dabing-cz-button {
+  position: relative;
+}
+.dabing-cz-button .dabing-cz-icon {
+  display: inline-flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.9;
+  transition: opacity 0.1s ease;
+}
+.dabing-cz-button:hover .dabing-cz-icon { opacity: 1; }
+
+.dabing-cz-button .dabing-cz-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 6px;
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 700;
+  color: #fff;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+
+/* aktivní stav – červené podsvícení jako CC tlačítko */
+.dabing-cz-button.dabing-cz-active .dabing-cz-icon svg path { fill: #ff4d4d; stroke: #ff4d4d; }
+.dabing-cz-button.dabing-cz-active::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 6px;
+  height: 3px;
+  background: #ff4d4d;
+  border-radius: 2px;
+}
+
+/* načítání – pulzování */
+.dabing-cz-button.dabing-cz-loading .dabing-cz-icon { animation: dabing-cz-pulse 0.9s infinite ease-in-out; }
+@keyframes dabing-cz-pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }
+
+/* Toast hláška */
+#dabing-cz-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 80px;
+  transform: translateX(-50%) translateY(20px);
+  background: rgba(20,20,20,0.95);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: "Roboto", Arial, sans-serif;
+  z-index: 2147483647;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  max-width: 80vw;
+  text-align: center;
+}
+#dabing-cz-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
