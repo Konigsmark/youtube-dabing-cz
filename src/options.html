@@ -27,9 +27,10 @@
     <section>
       <label for="engine">Hlasový engine</label>
       <select id="engine">
+        <option value="gemini">Google (Gemini Live) – skutečný dabing audio→audio</option>
+        <option value="azure">Microsoft Natural přes Azure (Vlasta/Antonín)</option>
+        <option value="elevenlabs">ElevenLabs – neuronový hlas (placené, zatím neotestováno)</option>
         <option value="builtin">Vestavěný hlas prohlížeče (zdarma – Jakub)</option>
-        <option value="azure">Microsoft Natural přes Azure (Vlasta/Antonín) – doporučeno</option>
-        <option value="elevenlabs">ElevenLabs – neuronový hlas (placené)</option>
       </select>
     </section>
 
@@ -89,6 +90,17 @@
       <section><small>⚠️ Placené podle počtu znaků.</small></section>
     </div>
 
+    <div id="geminiBox" style="display:none">
+      <section>
+        <label for="geminiKey">Gemini API klíč</label>
+        <input type="password" id="geminiKey" placeholder="klíč z aistudio.google.com/apikey" autocomplete="off">
+        <small>Skutečný dabing: zvuk videa se přeloží přímo na český hlas (zachová intonaci). <b>Experimentální, placené (preview).</b> Po zapnutí Chrome požádá o povolení zachytávat zvuk karty.</small>
+      </section>
+      <section class="check"><label><input type="checkbox" id="gsubs"> Zobrazit přepis dabovaného hlasu jako titulek</label></section>
+      <section style="margin-top:8px"><small>Nahrávat dabing do souborů (ušetří opakované platby) — vyber, co stáhnout:</small></section>
+      <section class="check"><label><input type="checkbox" id="grecV"> Stáhnout VIDEO (.webm – obraz + český zvuk)</label></section>
+      <section class="check"><label><input type="checkbox" id="grecA"> Stáhnout AUDIO (.wav – jen český dabing, pro střih)</label></section>
+    </div>
     <section>
       <label for="rate">Rychlost: <span id="rateVal"></span></label>
       <input type="range" id="rate" min="0.5" max="2" step="0.1">
@@ -102,7 +114,11 @@
       <input type="range" id="volume" min="0" max="1" step="0.05">
     </section>
 
-    <section class="check"><label><input type="checkbox" id="mute"> Ztlumit originální zvuk během dabingu</label></section>
+    <section class="check"><label><input type="checkbox" id="mute"> Zeslabit originální zvuk během dabingu</label></section>
+    <section>
+      <label for="duck">Hlasitost originálu během dabingu: <span id="duckVal"></span></label>
+      <input type="range" id="duck" min="0" max="1" step="0.05">
+    </section>
     <section class="check"><label><input type="checkbox" id="enabled"> Automaticky spustit dabing na každém videu</label></section>
 
     <p id="saved" class="saved">Uloženo ✓</p>

@@ -19,12 +19,20 @@ git remote remove origin >nul 2>nul
 git remote add origin "%REPO%"
 git branch -M main
 
-git rm --cached push-log.txt >nul 2>nul
+REM --- odeber citlivé soubory (API kl��če) z pracovní kopie ---
+del /q "YT API Youtube.txt" 2>nul
+del /q "*.key" 2>nul
+del /q ".env" 2>nul
+
+git fetch origin >> "%LOG%" 2>&1
+REM postav ČISTÝ commit nad origin/main (zahodí lokální commity vč. omylem přidaného klíče)
+git reset --soft origin/main >> "%LOG%" 2>&1
+git rm --cached --ignore-unmatch "YT API Youtube.txt" "push-log.txt" >> "%LOG%" 2>&1
 git add -A >> "%LOG%" 2>&1
 git -c commit.gpgsign=false commit -m "update %DATE% %TIME%" >> "%LOG%" 2>&1
 
 echo --- PUSH --- >> "%LOG%"
-git push -u origin main >> "%LOG%" 2>&1
+git push origin main >> "%LOG%" 2>&1
 echo PUSH_EXIT=%ERRORLEVEL% >> "%LOG%"
 echo --- HEAD --- >> "%LOG%"
 git log -1 --oneline >> "%LOG%" 2>&1

@@ -1,9 +1,10 @@
 const DEFAULTS = {
   enabled:false, targetLang:"cs", rate:1.1, pitch:1.0, volume:1.0,
-  voiceURI:"", muteOriginal:true,
+  voiceURI:"", muteOriginal:true, duckVolume:0.2,
   ttsEngine:"builtin",
   elevenKey:"", elevenVoiceId:"21m00Tcm4TlvDq8ikWAM", elevenModel:"eleven_multilingual_v2",
-  azureKey:"", azureRegion:"", azureVoice:"cs-CZ-VlastaNeural"
+  azureKey:"", azureRegion:"", azureVoice:"cs-CZ-VlastaNeural",
+  geminiKey:"", geminiSubs:true, recordVideo:false, recordAudio:false
 };
 const $ = (id) => document.getElementById(id);
 
@@ -23,6 +24,7 @@ function toggleBoxes() {
   $("builtinBox").style.display = e === "builtin" ? "" : "none";
   $("azureBox").style.display = e === "azure" ? "" : "none";
   $("elevenBox").style.display = e === "elevenlabs" ? "" : "none";
+  $("geminiBox").style.display = e === "gemini" ? "" : "none";
 }
 function flash(){ const s=$("saved"); s.classList.add("show"); clearTimeout(s._t); s._t=setTimeout(()=>s.classList.remove("show"),1200); }
 
@@ -31,14 +33,18 @@ function save() {
     targetLang: $("lang").value,
     voiceURI: $("voice").value,
     rate:+$("rate").value, pitch:+$("pitch").value, volume:+$("volume").value,
-    muteOriginal:$("mute").checked, enabled:$("enabled").checked,
+    muteOriginal:$("mute").checked, duckVolume:+$("duck").value, enabled:$("enabled").checked,
     ttsEngine:$("engine").value,
     elevenKey:$("elevenKey").value.trim(),
     elevenVoiceId:$("elevenVoice").value || DEFAULTS.elevenVoiceId,
     elevenModel:$("elevenModel").value,
     azureKey:$("azureKey").value.trim(),
     azureRegion:$("azureRegion").value.trim().toLowerCase(),
-    azureVoice:$("azureVoice").value
+    azureVoice:$("azureVoice").value,
+    geminiKey:$("geminiKey").value.trim(),
+    geminiSubs:$("gsubs").checked,
+    recordVideo:$("grecV").checked,
+    recordAudio:$("grecA").checked
   }, flash);
 }
 
@@ -63,17 +69,19 @@ async function init() {
   $("pitch").value=s.pitch; $("pitchVal").textContent=(+s.pitch).toFixed(1);
   $("volume").value=s.volume; $("volVal").textContent=Math.round(s.volume*100)+"%";
   $("mute").checked=s.muteOriginal; $("enabled").checked=s.enabled;
+  $("duck").value=s.duckVolume; $("duckVal").textContent=Math.round(s.duckVolume*100)+"%";
   $("engine").value=s.ttsEngine;
   $("elevenKey").value=s.elevenKey; $("elevenModel").value=s.elevenModel;
   $("azureKey").value=s.azureKey; $("azureRegion").value=s.azureRegion; $("azureVoice").value=s.azureVoice;
+  $("geminiKey").value=s.geminiKey; $("gsubs").checked=s.geminiSubs; $("grecV").checked=s.recordVideo; $("grecA").checked=s.recordAudio;
   fillVoices(s.voiceURI);
   if(window.speechSynthesis) speechSynthesis.onvoiceschanged=()=>fillVoices(s.voiceURI);
   $("elevenVoice").innerHTML=`<option value="${s.elevenVoiceId}">${s.elevenVoiceId} (uložený)</option>`;
   toggleBoxes();
 
-  for(const id of ["lang","voice","mute","enabled","engine","elevenModel","elevenVoice","azureVoice"]) $(id).addEventListener("change", save);
+  for(const id of ["lang","voice","mute","enabled","engine","elevenModel","elevenVoice","azureVoice","gsubs","grecV","grecA"]) $(id).addEventListener("change", save);
   $("engine").addEventListener("change", toggleBoxes);
-  for(const id of ["elevenKey","azureKey","azureRegion"]) $(id).addEventListener("change", save);
+  for(const id of ["elevenKey","azureKey","azureRegion","geminiKey"]) $(id).addEventListener("change", save);
   $("loadVoices").addEventListener("click", ()=>loadElevenVoices(s.elevenVoiceId));
   $("rate").addEventListener("input", ()=>{ $("rateVal").textContent=(+$("rate").value).toFixed(1)+"×"; save(); });
   $("pitch").addEventListener("input", ()=>{ $("pitchVal").textContent=(+$("pitch").value).toFixed(1); save(); });

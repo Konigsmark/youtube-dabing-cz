@@ -39,6 +39,8 @@
     } else if (d.__dabing === "enable") {
       const r = enableCaptions(d.lang);
       window.postMessage({ __dabing: "enabled", id: d.id, result: r }, "*");
+    } else if (d.__dabing === "vol") {
+      try { const p = player(); if (p && p.setVolume) p.setVolume(Math.max(0, Math.min(100, Math.round(d.value)))); } catch (e) {}
     }
   });
 })();

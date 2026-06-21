@@ -56,3 +56,69 @@ async function azureTTS({ key, region, voice, text, rate }) {
   if (!r.ok) { let t=""; try{t=await r.text();}catch(e){} return { error: "Azure " + r.status + " " + t.slice(0,160) }; }
   return { audio: bufToB64(await r.arrayBuffer()) };
 }
+
+/* ---- Gemini Live (audio->audio) ---- */
+let geminiTabId = null;
+
+chrome.runtime.onMessage.addListener((msg, sender, send) => {
+  if (!msg) return;
+  if (msg.target === "offscreen") return;           // patří offscreenu, ignoruj
+  if (msg.type === "GEMINI_START") { startGemini(msg, sender).then(send).catch((e) => send({ error: String(e && e.message || e) })); return true; }
+  if (msg.type === "GEMINI_STOP") { stopGemini().then(() => send({ ok: true })); return true; }
+  if (msg.type === "GEMINI_STATUS") {            // od offscreenu -> přepošli do karty
+    if (geminiTabId) { try { chrome.tabs.sendMessage(geminiTabId, { type: "DABING_GEMINI_STATUS", kind: msg.kind, text: msg.text }); } catch (e) {} }
+    return;
+  }
+});
+
+async function hasOffscreen() {
+  try {
+    const c = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] });
+    return c && c.length > 0;
+  } catch (e) {
+    try { return await chrome.offscreen.hasDocument(); } catch (e2) { return false; }
+  }
+}
+async function ensureOffscreen() {
+  if (await hasOffscreen()) return;
+  await chrome.offscreen.createDocument({
+    url: "src/offscreen.html",
+    reasons: ["USER_MEDIA"],
+    justification: "Překlad zvuku videa v reálném čase přes Gemini Live API."
+  });
+}
+function getStreamId(tabId) {
+  return new Promise((res, rej) => {
+    chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
+      if (chrome.runtime.lastError) rej(new Error(chrome.runtime.lastError.message));
+      else res(id);
+    });
+  });
+}
+async function startGemini(msg, sender) {
+  const tabId = sender && sender.tab && sender.tab.id;
+  if (!tabId) return { error: "Není ID karty" };
+  if (!msg.apiKey) return { error: "Chybí Gemini API klíč" };
+  await stopGemini();                                  // pošli stop -> offscreen uloží soubory
+  await new Promise((r) => setTimeout(r, 400));
+  try { if (await hasOffscreen()) await chrome.offscreen.closeDocument(); } catch (e) {}  // čistý reset capture
+  await new Promise((r) => setTimeout(r, 350));
+  await ensureOffscreen();
+  let streamId;
+  try {
+    streamId = await getStreamId(tabId);
+  } catch (e) {
+    try { if (await hasOffscreen()) await chrome.offscreen.closeDocument(); } catch (e2) {}
+    await new Promise((r) => setTimeout(r, 700));
+    await ensureOffscreen();
+    streamId = await getStreamId(tabId);
+  }
+  geminiTabId = tabId;
+  chrome.runtime.sendMessage({ target: "offscreen", type: "GEMINI_OFFSCREEN_START", streamId, apiKey: msg.apiKey, lang: msg.lang, recordVideo: !!msg.recordVideo, recordAudio: !!msg.recordAudio, title: msg.title || "" });
+  return { ok: true };
+}
+async function stopGemini() {
+  // offscreen NEcháme žít, aby se stihla uložit nahrávka; dokument zavřeme až při dalším startu
+  try { chrome.runtime.sendMessage({ target: "offscreen", type: "GEMINI_OFFSCREEN_STOP" }); } catch (e) {}
+  geminiTabId = null;
+}

@@ -7,20 +7,22 @@
 
   const DEFAULTS = {
     enabled: false, targetLang: "cs", rate: 1.1, pitch: 1.0,
-    volume: 1.0, voiceURI: "", muteOriginal: true,
+    volume: 1.0, voiceURI: "", muteOriginal: true, duckVolume: 0.2,
     ttsEngine: "builtin",
     elevenKey: "", elevenVoiceId: "21m00Tcm4TlvDq8ikWAM", elevenModel: "eleven_multilingual_v2",
-    azureKey: "", azureRegion: "", azureVoice: "cs-CZ-VlastaNeural"
+    azureKey: "", azureRegion: "", azureVoice: "cs-CZ-VlastaNeural",
+    geminiKey: "", geminiSubs: true, recordVideo: false, recordAudio: false
   };
   const LANG_BCP = { cs: "cs-CZ", en: "en-US", de: "de-DE", sk: "sk-SK", pl: "pl-PL", es: "es-ES" };
 
   let settings = { ...DEFAULTS };
   let active = false;
-  let video = null, prevMuted = null, injected = false;
-  let capObserver = null, idleTimer = null, cue = "", noCapTimer = null, keepAlive = null;
+  let video = null, prevVolume = null, injected = false;
+  let capObserver = null, capTimer = null, flushTimer = null, spokenWords = [], pending = "", noCapTimer = null, keepAlive = null;
 
   const queue = [];
   let playing = false, curAudio = null, warned = false;
+  let gTop = "", gBottom = "", gBuf = "", gTimer = null, gClear = null;
 
   function loadSettings() {
     return new Promise((res) => {
@@ -36,6 +38,11 @@
   chrome.runtime.onMessage.addListener((msg, _s, send) => {
     if (msg && msg.type === "DABING_TOGGLE") { toggle(); send({ active }); }
     if (msg && msg.type === "DABING_STATUS") send({ active, videoId: getVideoId() });
+    if (msg && msg.type === "DABING_GEMINI_STATUS") {
+      if (msg.kind === "err") toast("Gemini: " + msg.text);
+      else if (msg.kind === "info") toast("Gemini: " + msg.text);
+      else if (msg.kind === "transcript") onGeminiTranscript(msg.text);
+    }
   });
 
   function getVideoId() {
@@ -45,6 +52,12 @@
     return m ? m[1] : null;
   }
   const bcp = (l) => LANG_BCP[l] || l;
+  function getVideoTitle() {
+    const el = document.querySelector("h1.ytd-watch-metadata yt-formatted-string, h1.ytd-watch-metadata, ytd-watch-metadata #title");
+    let t = el && el.textContent && el.textContent.trim();
+    if (!t) t = (document.title || "").replace(/^\(\d+\)\s*/, "").replace(/\s*-\s*YouTube\s*$/, "").trim();
+    return t || "youtube-dabing";
+  }
 
   function injectPageScript() {
     if (injected) return;
@@ -60,33 +73,55 @@
     injectPageScript();
     window.postMessage({ __dabing: "enable", id: Math.random().toString(36).slice(2), lang: settings.targetLang }, "*");
   }
+  function requestVolume(pct) {
+    injectPageScript();
+    window.postMessage({ __dabing: "vol", id: Math.random().toString(36).slice(2), value: pct }, "*");
+  }
+  function duckLevel() { return Math.max(0, Math.min(1, Number(settings.duckVolume))); }
 
   function readCaptionText() {
     const segs = document.querySelectorAll(".ytp-caption-segment");
     if (!segs.length) return "";
     return Array.from(segs).map((s) => s.textContent).join(" ").replace(/\s+/g, " ").trim();
   }
-  function finalizeCue() {
-    if (cue) { enqueue(cue); cue = ""; }
+  function resetCaptions() {
+    spokenWords = []; pending = "";
+    clearTimeout(flushTimer); clearTimeout(capTimer);
   }
-  function onCaptionChange() {
+  function flushPending() {
+    const p = pending.trim(); pending = "";
+    if (p) enqueue(p);
+  }
+  // ze zobrazených (rolujících) titulků vyber jen NOVÁ slova podle překryvu
+  function processCaptions() {
     if (!active) return;
     let t = readCaptionText()
       .replace(/\[[^\]]*\]/g, " ").replace(/\([^)]*\)/g, " ")
       .replace(/\s+/g, " ").trim();
     if (!t) return;
     if (noCapTimer) { clearTimeout(noCapTimer); noCapTimer = null; }
-    if (t === cue) return;
-    if (!cue || t.startsWith(cue)) {
-      cue = t;                       // nová nebo rostoucí věta – ještě nečteme
-    } else if (cue.startsWith(t)) {
-      return;                        // jen překreslení/zkrácení – ignoruj
-    } else {
-      finalizeCue();                 // věta nahrazena jinou → dořekni tu starou
-      cue = t;
+    const cur = t.split(" ").filter(Boolean);
+    let k = 0;
+    const maxK = Math.min(spokenWords.length, cur.length);
+    for (let n = maxK; n >= 1; n--) {
+      if (spokenWords.slice(-n).join(" ") === cur.slice(0, n).join(" ")) { k = n; break; }
     }
-    clearTimeout(idleTimer);
-    idleTimer = setTimeout(finalizeCue, 1100);   // po ustálení větu dořekni
+    const nw = cur.slice(k);
+    if (!nw.length) return;
+    spokenWords.push(...nw);
+    if (spokenWords.length > 60) spokenWords = spokenWords.slice(-60);
+    pending = pending ? pending + " " + nw.join(" ") : nw.join(" ");
+    // vyřízni hotové věty (končící . ! ? …)
+    let m;
+    while ((m = pending.match(/^([\s\S]*?[.!?…])\s+([\s\S]*)$/))) { enqueue(m[1].trim()); pending = m[2]; }
+    if (pending.length > 180) flushPending();
+    clearTimeout(flushTimer);
+    flushTimer = setTimeout(flushPending, 900);   // po pauze dořekni zbytek
+  }
+  function onCaptionChange() {
+    if (!active) return;
+    clearTimeout(capTimer);
+    capTimer = setTimeout(processCaptions, 150);
   }
   function startCaptionWatch() {
     stopCaptionWatch();
@@ -96,7 +131,7 @@
   }
   function stopCaptionWatch() {
     if (capObserver) { capObserver.disconnect(); capObserver = null; }
-    clearTimeout(idleTimer);
+    clearTimeout(capTimer); clearTimeout(flushTimer);
   }
 
   function isCloud() {
@@ -189,7 +224,12 @@
       if (active && window.speechSynthesis && window.speechSynthesis.speaking) {
         try { window.speechSynthesis.resume(); } catch (e) {}
       }
-    }, 8000);
+      if (active && settings.muteOriginal) {
+        const vv = document.querySelector("video.html5-main-video, video.video-stream, video");
+        const d = duckLevel();
+        if (vv && vv.volume > d + 0.02) { try { vv.volume = d; } catch (e) {} requestVolume(Math.round(d * 100)); }
+      }
+    }, 2500);
   }
   function stopKeepAlive() { if (keepAlive) { clearInterval(keepAlive); keepAlive = null; } }
 
@@ -204,16 +244,37 @@
     }
     return video;
   }
-  function onSeek() { if (!active) return; cue = ""; clearTimeout(idleTimer); clearSpeech(); }
+  function onSeek() { if (!active) return; resetCaptions(); clearSpeech(); }
   function onPause() { if (active && window.speechSynthesis) window.speechSynthesis.pause(); }
   function onPlay() { if (active && window.speechSynthesis) window.speechSynthesis.resume(); }
 
+  function enableGemini() {
+    active = true; updateButtons();
+    chrome.runtime.sendMessage({ type: "GEMINI_START", apiKey: settings.geminiKey, lang: settings.targetLang, recordVideo: settings.recordVideo, recordAudio: settings.recordAudio, title: getVideoTitle() }, (resp) => {
+      if (chrome.runtime.lastError || !resp || resp.error) {
+        active = false; updateButtons();
+        const err = (resp && resp.error) || (chrome.runtime.lastError && chrome.runtime.lastError.message) || "chyba";
+        if (/invoked|activeTab/i.test(err))
+          toast("Gemini: klikni nejdřív na IKONU rozšíření v liště Chromu (to udělí právo zachytit kartu), pak spusť DAB.");
+        else
+          toast("Gemini Live nelze spustit: " + err);
+      } else {
+        toast("Gemini Live dabing běží (audio→audio).");
+      }
+    });
+  }
   function enable() {
+    if (settings.ttsEngine === "gemini") { if (!settings.geminiKey) { toast("Zadej Gemini API klíč v nastavení."); return; } enableGemini(); return; }
     attachVideo();
-    cue = ""; warned = false; queue.length = 0;
+    resetCaptions(); warned = false; queue.length = 0;
     startCaptionWatch();
     startKeepAlive();
-    if (settings.muteOriginal && video) { prevMuted = video.muted; video.muted = true; }
+    if (settings.muteOriginal && video) {
+      prevVolume = video.volume;
+      const d = duckLevel();
+      try { video.volume = d; } catch (e) {}
+      requestVolume(Math.round(d * 100));
+    }
     active = true;
     updateButtons();
     clearTimeout(noCapTimer);
@@ -225,11 +286,17 @@
   }
   function disable() {
     active = false;
+    try { chrome.runtime.sendMessage({ type: "GEMINI_STOP" }); } catch (e) {}
+    clearSub();
     stopCaptionWatch(); stopKeepAlive();
     clearTimeout(noCapTimer); noCapTimer = null;
-    clearTimeout(idleTimer); cue = "";
+    resetCaptions();
     clearSpeech();
-    if (video && prevMuted !== null) { video.muted = prevMuted; prevMuted = null; }
+    if (video && prevVolume !== null) {
+      try { video.volume = prevVolume; } catch (e) {}
+      requestVolume(Math.round(prevVolume * 100));
+      prevVolume = null;
+    }
     updateButtons();
   }
   function toggle() { if (active) disable(); else enable(); }
@@ -252,7 +319,8 @@
     btn.innerHTML = `<span class="dabing-cz-icon">${svgIcon()}</span><span class="dabing-cz-badge">DAB</span>`;
     btn.addEventListener("click", (e) => { e.stopPropagation(); toggle(); });
     const cc = controls.querySelector(".ytp-subtitles-button");
-    if (cc) controls.insertBefore(btn, cc); else controls.insertBefore(btn, controls.firstChild);
+    if (cc && cc.parentElement) cc.parentElement.insertBefore(btn, cc);
+    else { const left = controls.querySelector(".ytp-right-controls-left") || controls; left.insertBefore(btn, left.firstChild); }
     updateButtons();
   }
 
@@ -301,7 +369,11 @@
     document.body.appendChild(f);
     updateButtons();
   }
-  function ensureUI() { ensurePlayerButton(); ensureActionButton(); ensureFloatButton(); }
+  function ensureUI() {
+    try { ensurePlayerButton(); } catch (e) {}
+    try { ensureActionButton(); } catch (e) {}
+    try { ensureFloatButton(); } catch (e) {}
+  }
 
   function updateButtons() {
     const n = (settings.targetLang || "").toUpperCase();
@@ -324,6 +396,43 @@
     }
   }
 
+  function renderSub() {
+    const host = document.querySelector(".html5-video-player") || document.body;
+    let el = document.getElementById("dabing-cz-subs");
+    if (!gTop && !gBottom) { if (el) el.remove(); return; }
+    if (!el) { el = document.createElement("div"); el.id = "dabing-cz-subs"; }
+    if (el.parentElement !== host) host.appendChild(el);
+    // jen nová věta + změř počet řádků; nic se neořezává (žádné "…")
+    el.innerHTML = "";
+    el.appendChild(document.createTextNode(gTop || ""));
+    const lh = parseFloat(getComputedStyle(el).lineHeight) || 38;
+    const topLines = Math.round(el.offsetHeight / lh);
+    // předchozí větu přidej jen když se nová vejde na jeden řádek
+    if (gBottom && topLines <= 1) {
+      el.appendChild(document.createElement("br"));
+      el.appendChild(document.createTextNode(gBottom));
+    }
+  }
+  function pushLine(str) {
+    str = (str || "").trim(); if (!str) return;
+    gBottom = gTop; gTop = str;   // nová věta nahoru, předchozí dolů
+    renderSub();
+  }
+  function onGeminiTranscript(t) {
+    if (!settings.geminiSubs || !t) return;
+    gBuf += t;
+    let m;
+    while ((m = gBuf.match(/^([\s\S]*?[.!?…])(\s+[\s\S]*|)$/))) {
+      pushLine(m[1]);
+      gBuf = m[2].replace(/^\s+/, "");
+      if (!gBuf) break;
+    }
+    clearTimeout(gTimer);
+    gTimer = setTimeout(() => { if (gBuf.trim()) { pushLine(gBuf.trim()); gBuf = ""; } }, 1200);
+    clearTimeout(gClear);
+    gClear = setTimeout(clearSub, 9000);
+  }
+  function clearSub() { clearTimeout(gTimer); clearTimeout(gClear); gTop = ""; gBottom = ""; gBuf = ""; renderSub(); }
   function toast(text) {
     let el = document.getElementById("dabing-cz-toast");
     if (!el) { el = document.createElement("div"); el.id = "dabing-cz-toast"; document.body.appendChild(el); }
@@ -332,7 +441,7 @@
   }
 
   function onNavigate() {
-    cue = ""; attachVideo(); ensureUI();
+    resetCaptions(); attachVideo(); ensureUI();
   }
   document.addEventListener("yt-navigate-finish", onNavigate);
   window.addEventListener("yt-page-data-updated", onNavigate);
@@ -341,7 +450,7 @@
   if (window.speechSynthesis) { window.speechSynthesis.onvoiceschanged = () => {}; getVoices(); }
 
   loadSettings().then(() => {
-    attachVideo(); ensureUI();
+    injectPageScript(); attachVideo(); ensureUI();
     if (settings.enabled && getVideoId()) setTimeout(() => enable(), 1800);
   });
 })();

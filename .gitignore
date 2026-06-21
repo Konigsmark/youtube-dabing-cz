@@ -10,3 +10,11 @@ Thumbs.db
 node_modules/
 dist/
 push-log.txt
+
+# CITLIVÉ – API klíče (nikdy nenahrávat)
+YT API Youtube.txt
+*api*.txt
+*API*.txt
+*.key
+.env
+secrets.*
