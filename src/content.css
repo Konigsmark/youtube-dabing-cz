@@ -86,3 +86,14 @@
 .dabing-cz-actionbtn:hover { background: var(--yt-spec-10-percent-layer, rgba(0,0,0,0.1)); }
 .dabing-cz-actionbtn svg { display: block; }
 .dabing-cz-actionbtn.dabing-cz-active { background: #ff4d4d; color: #fff; }
+
+/* ikona uvnitř action tlačítka */
+.dabing-cz-actionbtn .dabing-cz-aicon {
+  display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center;
+}
+.dabing-cz-actionbtn .dabing-cz-aicon svg { width: 20px; height: 20px; }
+/* badge v přehrávači jako text DAB */
+.dabing-cz-button .dabing-cz-badge {
+  position: absolute; bottom: 6px; right: 4px; font-size: 8px; font-weight: 700;
+  letter-spacing: .3px; color: #fff; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,.7);
+}
