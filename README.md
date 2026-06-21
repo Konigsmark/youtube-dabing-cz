@@ -1,64 +1,78 @@
 # YouTube Dabing CZ 🎙️
 
-Rozšíření pro Google Chrome (Manifest V3), které přidá do ovládacích prvků
-přehrávače YouTube – hned vedle tlačítka titulků (CC) – tlačítko **Dabing**.
-Po jeho stisknutí rozšíření načte titulky videa, nechá je YouTube přeložit do
-zvoleného jazyka (výchozí **čeština**) a **přečte je nahlas hlasem prohlížeče**,
-zatímco ztlumí originální zvuk. Výsledkem je „dabing" videa.
+Rozšíření pro Google Chrome (Manifest V3), které **dabuje YouTube videa do češtiny** (i jiných jazyků)
+přímo v přehrávači. Vedle tlačítka titulků (CC) přidá tlačítko **DAB**; po jeho zapnutí ztlumí/zeslabí
+originál a pustí český překlad. Nabízí několik hlasových enginů – od zdarma vestavěného hlasu až po
+**skutečný real‑time AI dabing audio→audio přes Google Gemini Live**.
 
-## Jak to funguje
+## Hlasové enginy
 
-1. Klik na tlačítko v přehrávači → načte se titulkový track videa.
-2. YouTube je požádán o překlad titulků do cílového jazyka (parametr `tlang`).
-3. Přeložené segmenty se synchronně s časem videa předčítají přes
-   Web Speech API (`SpeechSynthesis`).
-4. Originální zvuk je po dobu dabingu ztlumen.
+V nastavení si vybíráš engine (pořadí: Google / Azure / ElevenLabs / vestavěný):
 
-## Nastavení
+1. **Google (Gemini Live) – skutečný dabing audio→audio** *(doporučeno)*
+   Zvuk videa jde přímo do modelu `gemini-3.5-live-translate-preview`, zpátky chodí
+   **český hlas se zachovanou intonací** (Speech‑to‑Speech). Nepotřebuje titulky.
+   Vyžaduje vlastní **Gemini API klíč** (aistudio.google.com), je **placené** (preview).
+2. **Microsoft Natural přes Azure** (Vlasta/Antonín) – neuronové hlasy, free tarif 500k znaků/měsíc.
+3. **ElevenLabs** – neuronový hlas (placené).
+4. **Vestavěný hlas prohlížeče** (zdarma, např. Microsoft Jakub) – čte přeložené titulky.
 
+> Enginy 2–4 čtou **titulky** videa (je potřeba mít zapnuté CC, případně auto‑překlad).
+> Engine 1 (Gemini) titulky nepotřebuje – pracuje přímo se zvukem.
+
+## Hlavní funkce
+
+- Tlačítko **DAB** v přehrávači (+ plovoucí tlačítko jako fallback).
 - Výstupní jazyk: čeština, angličtina, němčina, slovenština, polština, španělština.
-- Rychlost, výška a hlasitost hlasu, výběr konkrétního systémového hlasu.
-- Automatické spuštění na každém videu, ztlumení originálu.
+- **Zeslabení originálu** během dabingu (výchozí 20 %, nastavitelné).
+- **Vlastní titulek** s přepisem dabovaného hlasu (žlutý, 2 řádky, rolování po větách) – u Gemini enginu.
+- **Nahrávání do souboru** (Gemini engine): ulož si přehrané **VIDEO** (`.webm`, obraz + český zvuk)
+  a/nebo **AUDIO** (`.wav`, jen dabing pro střih). Soubory se pojmenují podle názvu videa:
+  `Název videa-dabing.webm` / `.wav`. Zaplatíš jen jedno přehrání, soubor pak používáš zdarma.
 
-Nastavení je dostupné v okně rozšíření (popup) i na stránce možností.
+## Instalace (nezabalená / vývojová)
 
-## Instalace (vývojová / nezabalená)
+1. `chrome://extensions` → vpravo nahoře zapni **Režim pro vývojáře**.
+2. **Načíst rozbalené** → vyber složku `youtube-dabing-cz`.
+3. Otevři YouTube video a klikni na **DAB**.
 
-1. Otevři `chrome://extensions`.
-2. Vpravo nahoře zapni **Režim pro vývojáře**.
-3. Klikni **Načíst rozbalené** a vyber složku `youtube-dabing-cz`.
-4. Otevři libovolné YouTube video s titulky a klikni na nové tlačítko 🎙️.
+> Pozn.: Gemini engine používá zachytávání zvuku karty (`tabCapture`), které vyžaduje, aby bylo
+> rozšíření na stránce **vyvoláno přes ikonu v liště** – proto Gemini dabing spouštěj kliknutím
+> na ikonu rozšíření (popup), ne jen tlačítkem na stránce.
 
-## ⚠️ Omezení (čti, prosím)
+## Nastavení Gemini
 
-- **Funguje jen u videí, která mají titulky** (i automaticky generované).
-  Bez titulků nelze překlad získat.
-- Nejde o náhradu hlasu mluvčího ani o klonování hlasu – jde o **předčítání
-  přeložených titulků** počítačovým hlasem, synchronně s videem.
-- Kvalita a dostupnost hlasů závisí na operačním systému / prohlížeči.
-- „Google Live Translate 3.5" není veřejné API; tato verze místo něj využívá
-  vestavěný překlad titulků YouTube (zdarma, bez API klíče).
+1. Vytvoř si API klíč na **aistudio.google.com/apikey**.
+2. V **Možnostech** rozšíření: engine = *Google (Gemini Live)*, vlož klíč, ulož.
+3. Zaškrtni, jestli chceš titulek a/nebo nahrávání do souboru.
 
-## Možná budoucí vylepšení (cesta k „plnému" dabingu)
+## Náklady (Gemini Live, orientačně)
 
-- Vlastní STT (rozpoznání řeči) pro videa bez titulků – vyžaduje cloudovou
-  službu a serverovou část.
-- Neuronový TTS / klonování hlasu pro přirozenější dabing (placené API).
-- Lepší časová synchronizace a fronta promluv.
+Účtuje se zvuk: vstup ~$0,0053/min, výstup ~$0,0315/min → **~$0,037/min**, tj. **hodina ≈ $2 (~50 Kč)**.
+Spotřebu sleduj v Google AI Studiu (Usage / Spend).
 
 ## Struktura
 
 ```
 youtube-dabing-cz/
 ├── manifest.json
-├── icons/            (16/48/128 px)
+├── icons/
 └── src/
-    ├── content.js    – injektáž tlačítka + dabing engine
-    ├── content.css   – styl tlačítka v přehrávači
-    ├── popup.html/js – rychlé ovládání
-    ├── options.html/js – podrobné nastavení
-    └── ui.css        – styl popupu a nastavení
+    ├── content.js     – tlačítka, titulky, řízení enginů
+    ├── content.css
+    ├── background.js  – řízení Gemini (tabCapture, offscreen)
+    ├── offscreen.js   – zachyt zvuku/obrazu, Gemini WS, přehrání, nahrávání souborů
+    ├── inject.js      – ovládání hlasitosti přehrávače
+    ├── popup.html/js
+    ├── options.html/js
+    └── ui.css
 ```
+
+## Omezení / poznámky
+
+- Gemini dabing má proti obrazu **pár vteřin zpoždění** (model překládá s odstupem) – platí i pro nahrané video.
+- Nahrané soubory jsou **WebM/WAV**; na MP4 převedeš např. v HandBrake/VLC, WAV otevře každý střihový SW.
+- „Google Live Translate 3.5" = model `gemini-3.5-live-translate-preview` (Gemini Live API).
 
 ## Licence
 
