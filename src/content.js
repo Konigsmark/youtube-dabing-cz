@@ -19,7 +19,7 @@
   let active = false;
   let video = null, prevMuted = null, injected = false;
   let capObserver = null, lastText = "", lastEmitted = "", stabTimer = null, noCapTimer = null;
-  let speaking = false, nextText = null, keepAlive = null, curAudio = null;
+  let speaking = false, nextText = null, nextFetch = null, keepAlive = null, curAudio = null;
 
   function loadSettings() {
     return new Promise((res) => {
@@ -105,37 +105,51 @@
     return byLang.find((v) => /google/i.test(v.name)) || byLang[0] || null;
   }
   // fronta promluv – nepřerušujeme uprostřed věty (kvůli plynulosti)
+  function isCloud() {
+    return (settings.ttsEngine === "elevenlabs" && settings.elevenKey && settings.elevenVoiceId) ||
+           (settings.ttsEngine === "azure" && settings.azureKey && settings.azureRegion);
+  }
+  function fetchCloudAudio(text) {
+    return new Promise((resolve) => {
+      let msg;
+      if (settings.ttsEngine === "elevenlabs")
+        msg = { type: "ELEVEN_TTS", apiKey: settings.elevenKey, voiceId: settings.elevenVoiceId, modelId: settings.elevenModel, text };
+      else
+        msg = { type: "AZURE_TTS", key: settings.azureKey, region: settings.azureRegion, voice: settings.azureVoice, text, rate: settings.rate };
+      try {
+        chrome.runtime.sendMessage(msg, (resp) => {
+          if (chrome.runtime.lastError || !resp || resp.error || !resp.audio) {
+            resolve({ error: (resp && resp.error) || (chrome.runtime.lastError && chrome.runtime.lastError.message) || "chyba" });
+          } else resolve({ audio: resp.audio });
+        });
+      } catch (e) { resolve({ error: String(e) }); }
+    });
+  }
+  // fronta s přednačítáním další věty (plynulé navázání u cloud hlasů)
   function enqueue(text) {
     if (!text) return;
-    if (speaking) { nextText = text; return; }   // domluv aktuální, pak přijde tahle
-    doSpeak(text);
-  }
-  function doSpeak(text) {
+    if (speaking) {
+      nextText = text;
+      nextFetch = isCloud() ? fetchCloudAudio(text) : null;
+      return;
+    }
     speaking = true;
+    runOne(text, isCloud() ? fetchCloudAudio(text) : null);
+  }
+  async function runOne(text, fetchP) {
     const done = () => {
-      speaking = false;
-      if (active && nextText) { const n = nextText; nextText = null; doSpeak(n); }
-    };
-    const cloudHandler = (resp) => {
       if (!active) { speaking = false; return; }
-      if (chrome.runtime.lastError || !resp || resp.error || !resp.audio) {
-        const err = (resp && resp.error) || (chrome.runtime.lastError && chrome.runtime.lastError.message) || "neznámá chyba";
-        if (!doSpeak._warned) { doSpeak._warned = true; toast("Neuronový hlas selhal: " + err + " – používám záložní hlas."); }
-        speakBuiltin(text, done);
-        return;
-      }
-      playBase64(resp.audio, done);
+      if (nextText) {
+        const t = nextText, f = nextFetch; nextText = null; nextFetch = null;
+        runOne(t, f || (isCloud() ? fetchCloudAudio(t) : null));
+      } else speaking = false;
     };
-    if (settings.ttsEngine === "elevenlabs" && settings.elevenKey && settings.elevenVoiceId) {
-      try {
-        chrome.runtime.sendMessage({ type: "ELEVEN_TTS", apiKey: settings.elevenKey,
-          voiceId: settings.elevenVoiceId, modelId: settings.elevenModel, text }, cloudHandler);
-      } catch (e) { speakBuiltin(text, done); }
-    } else if (settings.ttsEngine === "azure" && settings.azureKey && settings.azureRegion) {
-      try {
-        chrome.runtime.sendMessage({ type: "AZURE_TTS", key: settings.azureKey,
-          region: settings.azureRegion, voice: settings.azureVoice, text, rate: settings.rate }, cloudHandler);
-      } catch (e) { speakBuiltin(text, done); }
+    if (fetchP) {
+      let r = null; try { r = await fetchP; } catch (e) {}
+      if (!active) { speaking = false; return; }
+      if (r && r.audio) { playBase64(r.audio, done); return; }
+      if (r && r.error && !runOne._warned) { runOne._warned = true; toast("Neuronový hlas: " + r.error + " – používám záložní hlas."); }
+      speakBuiltin(text, done);
     } else {
       speakBuiltin(text, done);
     }
@@ -159,7 +173,6 @@
       stopAudio();
       curAudio = new Audio(url);
       curAudio.volume = Number(settings.volume) || 1.0;
-      curAudio.playbackRate = Math.min(2, Math.max(0.7, Number(settings.rate) || 1.0));
       const fin = () => { try { URL.revokeObjectURL(url); } catch (e) {} if (onend) onend(); };
       curAudio.onended = fin; curAudio.onerror = fin;
       curAudio.play().catch(() => fin());
@@ -167,7 +180,7 @@
   }
   function stopAudio() { if (curAudio) { try { curAudio.pause(); } catch (e) {} curAudio = null; } }
   function clearSpeech() {
-    nextText = null; speaking = false;
+    nextText = null; nextFetch = null; speaking = false;
     stopAudio();
     try { window.speechSynthesis.cancel(); } catch (e) {}
   }
@@ -201,7 +214,7 @@
   function enable() {
     attachVideo();
     requestEnable();                 // pokus zapnout titulky + překlad v přehrávači
-    lastText = ""; lastEmitted = ""; doSpeak._warned = false;
+    lastText = ""; lastEmitted = ""; runOne._warned = false;
     startCaptionWatch();
     startKeepAlive();
     if (settings.muteOriginal && video) { prevMuted = video.muted; video.muted = true; }
@@ -257,12 +270,15 @@
     </svg>`;
   }
   function ensureActionButton() {
-    const row = document.querySelector(
-      "ytd-watch-metadata #actions #top-level-buttons-computed, " +
-      "ytd-watch-metadata #actions-inner #top-level-buttons-computed, " +
-      "ytd-watch-metadata #actions ytd-menu-renderer #top-level-buttons-computed"
-    ) || document.querySelector("#top-level-buttons-computed");
-    if (!row || document.getElementById(ABTN_ID)) return;
+    if (document.getElementById(ABTN_ID)) return;
+    const rows = document.querySelectorAll(
+      "ytd-watch-metadata #top-level-buttons-computed, " +
+      "#actions #top-level-buttons-computed, #menu #top-level-buttons-computed, " +
+      "ytd-watch-metadata #actions-inner"
+    );
+    let row = null;
+    for (const r of rows) { if (r && r.offsetParent !== null) { row = r; break; } }
+    if (!row) return;
     const b = document.createElement("button");
     b.id = ABTN_ID;
     b.className = "dabing-cz-actionbtn";
