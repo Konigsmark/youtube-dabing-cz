@@ -31,7 +31,6 @@
   chrome.storage.onChanged.addListener((c, area) => {
     if (area !== "sync") return;
     for (const k of Object.keys(c)) settings[k] = c[k].newValue;
-    if (active && c.targetLang) requestEnable();
     updateButtons();
   });
   chrome.runtime.onMessage.addListener((msg, _s, send) => {
@@ -71,14 +70,18 @@
     if (!active) return;
     clearTimeout(stabTimer);
     stabTimer = setTimeout(() => {
-      const t = readCaptionText();
+      let t = readCaptionText();
+      // odfiltruj nemluvené popisky typu [Music], (applause)
+      t = t.replace(/\[[^\]]*\]/g, " ").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
       if (!t || t === lastEmitted) return;
-      let toSay = t;
-      if (lastEmitted && t.startsWith(lastEmitted)) toSay = t.slice(lastEmitted.length).trim();
+      // pokud nová věta jen prodlužuje rozepsanou (roluje), počkáme – přečteme ji celou až ustálenou
+      const prev = lastEmitted;
       lastEmitted = t;
       if (noCapTimer) { clearTimeout(noCapTimer); noCapTimer = null; }
-      if (toSay) enqueue(toSay);
-    }, 280);
+      // přeskoč, jde-li jen o prefix už řečené věty
+      if (prev && prev.startsWith(t)) return;
+      enqueue(t);
+    }, 360);
   }
   function startCaptionWatch() {
     stopCaptionWatch();
@@ -202,7 +205,6 @@
 
   function enable() {
     attachVideo();
-    requestEnable();
     lastEmitted = ""; warned = false; queue.length = 0;
     startCaptionWatch();
     startKeepAlive();
@@ -280,7 +282,20 @@
     updateButtons();
   }
 
-  function ensureUI() { ensurePlayerButton(); ensureActionButton(); }
+  const FBTN_ID = "dabing-cz-float";
+  function ensureFloatButton() {
+    let f = document.getElementById(FBTN_ID);
+    const haveAction = !!document.getElementById(ABTN_ID);
+    if (haveAction || !getVideoId()) { if (f) f.remove(); return; }
+    if (f) return;
+    f = document.createElement("button");
+    f.id = FBTN_ID;
+    f.innerHTML = `<span class="dabing-cz-aicon">${svgIcon()}</span><span class="dabing-cz-flabel">DAB</span>`;
+    f.addEventListener("click", (e) => { e.stopPropagation(); toggle(); });
+    document.body.appendChild(f);
+    updateButtons();
+  }
+  function ensureUI() { ensurePlayerButton(); ensureActionButton(); ensureFloatButton(); }
 
   function updateButtons() {
     const n = (settings.targetLang || "").toUpperCase();
@@ -294,6 +309,13 @@
       const lab = abtn.querySelector(".dabing-cz-actionlabel");
       if (lab) lab.textContent = active ? "DAB ●" : "DAB";
     }
+    const fbtn = document.getElementById(FBTN_ID);
+    if (fbtn) {
+      fbtn.classList.toggle("dabing-cz-active", active);
+      fbtn.title = tip;
+      const fl = fbtn.querySelector(".dabing-cz-flabel");
+      if (fl) fl.textContent = active ? "DAB ●" : "DAB";
+    }
   }
 
   function toast(text) {
@@ -305,7 +327,6 @@
 
   function onNavigate() {
     lastEmitted = ""; attachVideo(); ensureUI();
-    if (active) requestEnable();
   }
   document.addEventListener("yt-navigate-finish", onNavigate);
   window.addEventListener("yt-page-data-updated", onNavigate);
@@ -314,7 +335,7 @@
   if (window.speechSynthesis) { window.speechSynthesis.onvoiceschanged = () => {}; getVoices(); }
 
   loadSettings().then(() => {
-    injectPageScript(); attachVideo(); ensureUI();
+    attachVideo(); ensureUI();
     if (settings.enabled && getVideoId()) setTimeout(() => enable(), 1800);
   });
 })();

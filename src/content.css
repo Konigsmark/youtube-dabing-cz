@@ -97,3 +97,23 @@
   position: absolute; bottom: 6px; right: 4px; font-size: 8px; font-weight: 700;
   letter-spacing: .3px; color: #fff; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,.7);
 }
+
+/* Plovoucí tlačítko (fallback, vždy viditelné) */
+#dabing-cz-float {
+  position: fixed !important;
+  right: 16px; bottom: 88px;
+  z-index: 2147483646 !important;
+  display: flex !important; align-items: center; gap: 6px;
+  height: 40px; padding: 0 16px;
+  border: none; border-radius: 20px;
+  background: #ff0000; color: #fff;
+  font-family: "Roboto", Arial, sans-serif; font-size: 14px; font-weight: 700;
+  cursor: pointer; box-shadow: 0 2px 12px rgba(0,0,0,.45);
+}
+#dabing-cz-float:hover { background: #d90000; }
+#dabing-cz-float.dabing-cz-active { background: #0a7d2c; }
+#dabing-cz-float .dabing-cz-aicon { width: 20px; height: 20px; display: inline-flex; }
+#dabing-cz-float .dabing-cz-aicon svg { width: 20px; height: 20px; }
+
+/* zajistit viditelnost tlačítka v řádku akcí */
+.dabing-cz-actionbtn { display: inline-flex !important; visibility: visible !important; opacity: 1 !important; }
