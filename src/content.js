@@ -17,7 +17,7 @@
   let settings = { ...DEFAULTS };
   let active = false;
   let video = null, prevMuted = null, injected = false;
-  let capObserver = null, stabTimer = null, lastEmitted = "", noCapTimer = null, keepAlive = null;
+  let capObserver = null, idleTimer = null, cue = "", noCapTimer = null, keepAlive = null;
 
   const queue = [];
   let playing = false, curAudio = null, warned = false;
@@ -66,22 +66,27 @@
     if (!segs.length) return "";
     return Array.from(segs).map((s) => s.textContent).join(" ").replace(/\s+/g, " ").trim();
   }
+  function finalizeCue() {
+    if (cue) { enqueue(cue); cue = ""; }
+  }
   function onCaptionChange() {
     if (!active) return;
-    clearTimeout(stabTimer);
-    stabTimer = setTimeout(() => {
-      let t = readCaptionText();
-      // odfiltruj nemluvené popisky typu [Music], (applause)
-      t = t.replace(/\[[^\]]*\]/g, " ").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
-      if (!t || t === lastEmitted) return;
-      // pokud nová věta jen prodlužuje rozepsanou (roluje), počkáme – přečteme ji celou až ustálenou
-      const prev = lastEmitted;
-      lastEmitted = t;
-      if (noCapTimer) { clearTimeout(noCapTimer); noCapTimer = null; }
-      // přeskoč, jde-li jen o prefix už řečené věty
-      if (prev && prev.startsWith(t)) return;
-      enqueue(t);
-    }, 360);
+    let t = readCaptionText()
+      .replace(/\[[^\]]*\]/g, " ").replace(/\([^)]*\)/g, " ")
+      .replace(/\s+/g, " ").trim();
+    if (!t) return;
+    if (noCapTimer) { clearTimeout(noCapTimer); noCapTimer = null; }
+    if (t === cue) return;
+    if (!cue || t.startsWith(cue)) {
+      cue = t;                       // nová nebo rostoucí věta – ještě nečteme
+    } else if (cue.startsWith(t)) {
+      return;                        // jen překreslení/zkrácení – ignoruj
+    } else {
+      finalizeCue();                 // věta nahrazena jinou → dořekni tu starou
+      cue = t;
+    }
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(finalizeCue, 1100);   // po ustálení větu dořekni
   }
   function startCaptionWatch() {
     stopCaptionWatch();
@@ -91,7 +96,7 @@
   }
   function stopCaptionWatch() {
     if (capObserver) { capObserver.disconnect(); capObserver = null; }
-    clearTimeout(stabTimer);
+    clearTimeout(idleTimer);
   }
 
   function isCloud() {
@@ -199,13 +204,13 @@
     }
     return video;
   }
-  function onSeek() { if (!active) return; lastEmitted = ""; clearSpeech(); }
+  function onSeek() { if (!active) return; cue = ""; clearTimeout(idleTimer); clearSpeech(); }
   function onPause() { if (active && window.speechSynthesis) window.speechSynthesis.pause(); }
   function onPlay() { if (active && window.speechSynthesis) window.speechSynthesis.resume(); }
 
   function enable() {
     attachVideo();
-    lastEmitted = ""; warned = false; queue.length = 0;
+    cue = ""; warned = false; queue.length = 0;
     startCaptionWatch();
     startKeepAlive();
     if (settings.muteOriginal && video) { prevMuted = video.muted; video.muted = true; }
@@ -222,6 +227,7 @@
     active = false;
     stopCaptionWatch(); stopKeepAlive();
     clearTimeout(noCapTimer); noCapTimer = null;
+    clearTimeout(idleTimer); cue = "";
     clearSpeech();
     if (video && prevMuted !== null) { video.muted = prevMuted; prevMuted = null; }
     updateButtons();
@@ -326,7 +332,7 @@
   }
 
   function onNavigate() {
-    lastEmitted = ""; attachVideo(); ensureUI();
+    cue = ""; attachVideo(); ensureUI();
   }
   document.addEventListener("yt-navigate-finish", onNavigate);
   window.addEventListener("yt-page-data-updated", onNavigate);
