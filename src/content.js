@@ -22,6 +22,7 @@
 
   const queue = [];
   let playing = false, curAudio = null, warned = false;
+  let ttsCtx = null, ttsComp = null, ttsGain = null;
   let gTop = "", gBottom = "", gBuf = "", gTimer = null, gClear = null;
 
   function loadSettings() {
@@ -191,16 +192,53 @@
     u.onend = onend; u.onerror = onend;
     try { window.speechSynthesis.speak(u); } catch (e) { onend && onend(); }
   }
-  function playBase64(b64, onend) {
+  function ensureTtsCtx() {
+    if (ttsCtx) return;
+    try {
+      ttsCtx = new (window.AudioContext || window.webkitAudioContext)();
+      ttsComp = ttsCtx.createDynamicsCompressor();           // vyrovná kolísání hlasitosti
+      ttsComp.threshold.value = -18; ttsComp.knee.value = 20; ttsComp.ratio.value = 4;
+      ttsComp.attack.value = 0.004; ttsComp.release.value = 0.25;
+      ttsGain = ttsCtx.createGain();
+      ttsComp.connect(ttsGain); ttsGain.connect(ttsCtx.destination);
+    } catch (e) { ttsCtx = null; }
+  }
+  async function playBase64(b64, onend) {
     try {
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       const url = URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
       stopAudio();
-      curAudio = new Audio(url);
-      curAudio.volume = Number(settings.volume) || 1.0;
+      const audio = new Audio(url);
+      const rate = Math.min(2, Math.max(0.5, Number(settings.rate) || 1));
+      audio.playbackRate = rate;
+      try { audio.preservesPitch = true; audio.mozPreservesPitch = true; audio.webkitPreservesPitch = true; } catch (e) {}
+      ensureTtsCtx();
+      const vol = Number(settings.volume) || 1.0;
+      if (ttsCtx) {
+        try {
+          if (ttsCtx.state === "suspended") ttsCtx.resume();
+          // změř hlasitost klipu (RMS) a dorovnej na cílovou úroveň
+          let clipGain = 1;
+          try {
+            const buf = await ttsCtx.decodeAudioData(bytes.buffer.slice(0));
+            const ch = buf.getChannelData(0), N = ch.length, step = Math.max(1, Math.floor(N / 20000));
+            let sum = 0, cnt = 0;
+            for (let i = 0; i < N; i += step) { sum += ch[i] * ch[i]; cnt++; }
+            const rms = Math.sqrt(sum / Math.max(1, cnt));
+            if (rms > 0.0005) clipGain = Math.min(3.5, Math.max(0.35, 0.12 / rms));
+          } catch (e) {}
+          if (!active) { try { URL.revokeObjectURL(url); } catch (e) {} if (onend) onend(); return; }
+          ttsGain.gain.value = vol * clipGain;
+          const node = ttsCtx.createMediaElementSource(audio);
+          node.connect(ttsComp);
+        } catch (e) { audio.volume = vol; }
+      } else {
+        audio.volume = vol;
+      }
       const fin = () => { try { URL.revokeObjectURL(url); } catch (e) {} if (onend) onend(); };
-      curAudio.onended = fin; curAudio.onerror = fin;
-      curAudio.play().catch(() => fin());
+      audio.onended = fin; audio.onerror = fin;
+      curAudio = audio;
+      audio.play().catch(() => fin());
     } catch (e) { onend && onend(); }
   }
   function stopAudio() { if (curAudio) { try { curAudio.pause(); } catch (e) {} curAudio = null; } }

@@ -81,6 +81,8 @@ async function init() {
 
   for(const id of ["lang","voice","mute","enabled","engine","elevenModel","elevenVoice","azureVoice","gsubs","grecV","grecA"]) $(id).addEventListener("change", save);
   $("engine").addEventListener("change", toggleBoxes);
+  const back = document.getElementById("back");
+  if (back) back.addEventListener("click", () => { if (history.length > 1) history.back(); else window.close(); });
   for(const id of ["elevenKey","azureKey","azureRegion","geminiKey"]) $(id).addEventListener("change", save);
   $("loadVoices").addEventListener("click", ()=>loadElevenVoices(s.elevenVoiceId));
   $("rate").addEventListener("input", ()=>{ $("rateVal").textContent=(+$("rate").value).toFixed(1)+"×"; save(); });
