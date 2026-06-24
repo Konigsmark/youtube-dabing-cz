@@ -56,3 +56,14 @@ input[type="password"], input[type="text"] {
   border: 1px solid var(--border); border-radius: 6px; padding: 7px; font-size: 13px;
 }
 h2 { color: var(--fg); }
+
+/* popup – sekundární tlačítka a řádky */
+.btn-secondary {
+  width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card); color: var(--fg); font-size: 13px; cursor: pointer;
+}
+.btn-secondary:hover { background: #222; }
+.btn-secondary.on { background: var(--accent); color: #fff; }
+.popup .row.check { flex-direction: row; align-items: center; gap: 8px; }
+.popup small { color: var(--muted); font-size: 11px; }
+.popup #viewAdv { max-height: 70vh; }

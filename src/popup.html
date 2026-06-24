@@ -7,40 +7,91 @@
   <title>YouTube Dabing CZ</title>
 </head>
 <body class="popup">
-  <header class="head">
-    <div class="logo">🎙️</div>
-    <div>
-      <h1>YouTube Dabing CZ</h1>
-      <p class="sub">Čte titulky videa nahlas ve vámi zvoleném jazyce.</p>
+  <!-- ZÁKLADNÍ POHLED -->
+  <div id="viewBasic">
+    <header class="head">
+      <div class="logo">🎙️</div>
+      <div>
+        <h1>YouTube Dabing CZ</h1>
+        <p class="sub">Český dabing YouTube videí.</p>
+      </div>
+    </header>
+    <div class="row"><button id="toggle" class="btn-primary">Spustit dabing</button></div>
+    <div class="row">
+      <label for="lang">Výstupní jazyk</label>
+      <select id="lang">
+        <option value="cs">Čeština</option><option value="en">Angličtina</option>
+        <option value="de">Němčina</option><option value="sk">Slovenština</option>
+        <option value="pl">Polština</option><option value="es">Španělština</option>
+      </select>
     </div>
-  </header>
-
-  <div class="row">
-    <button id="toggle" class="btn-primary">Spustit dabing</button>
+    <div class="row"><label for="rate">Rychlost: <span id="rateVal"></span></label><input type="range" id="rate" min="0.5" max="2" step="0.1"></div>
+    <p id="status" class="status"></p>
+    <div class="row"><button id="more" class="btn-secondary">Další nastavení →</button></div>
   </div>
 
-  <div class="row">
-    <label for="lang">Výstupní jazyk</label>
-    <select id="lang">
-      <option value="cs">Čeština</option>
-      <option value="en">Angličtina</option>
-      <option value="de">Němčina</option>
-      <option value="sk">Slovenština</option>
-      <option value="pl">Polština</option>
-      <option value="es">Španělština</option>
-    </select>
+  <!-- ROZŠÍŘENÝ POHLED -->
+  <div id="viewAdv" style="display:none">
+    <div class="row"><button id="back" class="btn-secondary">← Zpět</button></div>
+
+    <div class="row">
+      <label for="engine">Hlasový engine</label>
+      <select id="engine">
+        <option value="gemini">Google (Gemini Live) – dabing audio→audio</option>
+        <option value="azure">Microsoft Natural přes Azure</option>
+        <option value="elevenlabs">ElevenLabs (placené)</option>
+        <option value="builtin">Vestavěný hlas (Jakub)</option>
+      </select>
+    </div>
+
+    <div id="builtinBox" class="row">
+      <label for="voice">Vestavěný hlas</label>
+      <select id="voice"><option value="">Automaticky</option></select>
+    </div>
+
+    <div id="azureBox" style="display:none">
+      <div class="row"><label for="azureKey">Azure klíč</label><input type="password" id="azureKey" autocomplete="off"></div>
+      <div class="row"><label for="azureRegion">Region</label><input type="text" id="azureRegion" placeholder="westeurope" autocomplete="off"></div>
+      <div class="row"><label for="azureVoice">Hlas</label>
+        <select id="azureVoice">
+          <option value="cs-CZ-VlastaNeural">Vlasta (CZ)</option>
+          <option value="cs-CZ-AntoninNeural">Antonín (CZ)</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="elevenBox" style="display:none">
+      <div class="row"><label for="elevenKey">ElevenLabs klíč</label><input type="password" id="elevenKey" autocomplete="off"></div>
+      <div class="row"><label for="elevenVoice">Hlas</label>
+        <div style="display:flex;gap:6px">
+          <select id="elevenVoice" style="flex:1"><option value="">—</option></select>
+          <button id="loadVoices" class="btn-small">Načíst</button>
+        </div>
+        <small id="voiceMsg"></small>
+      </div>
+      <div class="row"><label for="elevenModel">Model</label>
+        <select id="elevenModel">
+          <option value="eleven_multilingual_v2">multilingual_v2</option>
+          <option value="eleven_turbo_v2_5">turbo_v2_5</option>
+          <option value="eleven_flash_v2_5">flash_v2_5</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="geminiBox" style="display:none">
+      <div class="row"><label for="geminiKey">Gemini API klíč</label><input type="password" id="geminiKey" placeholder="aistudio.google.com/apikey" autocomplete="off"></div>
+      <div class="row check"><label><input type="checkbox" id="gsubs"> Titulek s přepisem hlasu</label></div>
+      <div class="row check"><label><input type="checkbox" id="grecV"> Nahrávat VIDEO (.webm)</label></div>
+      <div class="row check"><label><input type="checkbox" id="grecA"> Nahrávat AUDIO (.wav)</label></div>
+    </div>
+
+    <div class="row"><label for="pitch">Výška (vestavěný): <span id="pitchVal"></span></label><input type="range" id="pitch" min="0.5" max="2" step="0.1"></div>
+    <div class="row"><label for="volume">Hlasitost: <span id="volVal"></span></label><input type="range" id="volume" min="0" max="1" step="0.05"></div>
+    <div class="row check"><label><input type="checkbox" id="mute"> Zeslabit originál</label></div>
+    <div class="row"><label for="duck">Hlasitost originálu: <span id="duckVal"></span></label><input type="range" id="duck" min="0" max="1" step="0.05"></div>
+    <div class="row check"><label><input type="checkbox" id="enabled"> Spustit dabing automaticky</label></div>
+    <p id="saved" class="saved">Uloženo ✓</p>
   </div>
-
-  <div class="row">
-    <label for="rate">Rychlost hlasu: <span id="rateVal">1.1×</span></label>
-    <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1.1">
-  </div>
-
-  <p id="status" class="status"></p>
-
-  <footer class="foot">
-    <a href="#" id="openOptions">Další nastavení</a>
-  </footer>
 
   <script src="popup.js"></script>
 </body>
